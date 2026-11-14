@@ -1,4 +1,6 @@
 extends "res://scripts/ui/app_support.gd"
+const TouchScroll = preload("res://scripts/ui/touch_scroll.gd")
+const TextField = preload("res://scripts/ui/text_field.gd")
 const DateField = preload("res://scripts/ui/date_field.gd")
 const INK = Color("192436")
 const MUTED = Color("758196")
@@ -92,8 +94,10 @@ func _ready():
 	status.visible = false
 	status.custom_minimum_size.y = 38
 	main.add_child(status)
-	page_scroll = ScrollContainer.new()
+	page_scroll = TouchScroll.new()
 	page_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	page_scroll.follow_focus = true
+	page_scroll.scroll_deadzone = 12
 	page_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	main.add_child(page_scroll)
 	page_margin = MarginContainer.new()
@@ -229,6 +233,7 @@ func label(value: String, size: int = 16, color: Color = INK) -> Label:
 
 func button(parent: Node, title: String, callback: Callable) -> Button:
 	var node = Button.new()
+	node.mouse_filter = Control.MOUSE_FILTER_PASS
 	node.text = tr(title)
 	node.custom_minimum_size.y = 46
 	node.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -254,6 +259,7 @@ func quiet(parent: Node, title: String, callback: Callable) -> Button:
 
 func panel(parent: Node, title: String = "", subtitle: String = "") -> VBoxContainer:
 	var shell = PanelContainer.new()
+	shell.mouse_filter = Control.MOUSE_FILTER_PASS
 	shell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	shell.add_theme_stylebox_override("panel",box(Color.WHITE,16,22,Color("e8edf3")))
 	parent.add_child(shell)
@@ -287,7 +293,7 @@ func column(parent: Node) -> VBoxContainer:
 func input(parent: Node, title: String, value: String = "") -> LineEdit:
 	var field = column(parent)
 	field.add_child(label(title,13,MUTED))
-	var node = LineEdit.new()
+	var node = TextField.new()
 	node.text = value
 	node.custom_minimum_size.y = 48
 	field.add_child(node)
@@ -295,6 +301,7 @@ func input(parent: Node, title: String, value: String = "") -> LineEdit:
 
 func amount_field(parent: Node, title: String, value: String = "") -> LineEdit:
 	var node = input(parent,title,value)
+	node.numeric = true
 	node.virtual_keyboard_type = LineEdit.KEYBOARD_TYPE_NUMBER
 	node.placeholder_text = "₹ 0"
 	return node
@@ -311,6 +318,7 @@ func select(parent: Node, title: String, collection: Array, title_field: String 
 	var field = column(parent)
 	if not title.is_empty(): field.add_child(label(title,13,MUTED))
 	var node = OptionButton.new()
+	node.mouse_filter = Control.MOUSE_FILTER_PASS
 	node.fit_to_longest_item = false
 	node.clip_text = true
 	node.custom_minimum_size.y = 48
@@ -429,11 +437,14 @@ func modal(title: String, subtitle: String = "") -> VBoxContainer:
 	var center = CenterContainer.new()
 	inset.add_child(center)
 	var shell = PanelContainer.new()
+	shell.mouse_filter = Control.MOUSE_FILTER_PASS
 	shell.custom_minimum_size.x = minf(520,get_viewport_rect().size.x-36)
 	shell.add_theme_stylebox_override("panel",box(Color.WHITE,20,24))
 	center.add_child(shell)
-	var modal_scroll = ScrollContainer.new()
-	modal_scroll.custom_minimum_size.y = minf(520,get_viewport_rect().size.y-150)
+	var modal_scroll = TouchScroll.new()
+	modal_scroll.custom_minimum_size.y = minf(520,maxf(80,get_viewport_rect().size.y-100))
+	modal_scroll.follow_focus = true
+	modal_scroll.scroll_deadzone = 12
 	modal_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	modal_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	shell.add_child(modal_scroll)
@@ -448,12 +459,21 @@ func modal(title: String, subtitle: String = "") -> VBoxContainer:
 	modal_message.hide()
 	c.add_child(modal_message)
 	c.minimum_size_changed.connect(func(): fit_modal(modal_scroll,c))
+	var resize_modal = func():
+		if is_instance_valid(inset):
+			for edge in ["left","right","top","bottom"]: inset.add_theme_constant_override("margin_"+edge,18 if narrow() else 48)
+		if is_instance_valid(shell): shell.custom_minimum_size.x = minf(520,get_viewport_rect().size.x-36)
+		if is_instance_valid(c): c.custom_minimum_size.x = minf(472,get_viewport_rect().size.x-84)
+		fit_modal(modal_scroll,c)
+	get_viewport().size_changed.connect(resize_modal)
+	c.tree_exiting.connect(func():
+		if get_viewport().size_changed.is_connected(resize_modal): get_viewport().size_changed.disconnect(resize_modal))
 	call_deferred("fit_modal",modal_scroll,c)
 	return c
 
 func fit_modal(scroll: ScrollContainer, content: VBoxContainer):
 	if is_instance_valid(scroll) and is_instance_valid(content):
-		scroll.custom_minimum_size.y = minf(content.get_combined_minimum_size().y,get_viewport_rect().size.y-150)
+		scroll.custom_minimum_size.y = minf(content.get_combined_minimum_size().y,maxf(80,get_viewport_rect().size.y-100))
 
 func close_modal():
 	if is_instance_valid(modal_layer):
@@ -603,50 +623,37 @@ func people():
 
 func person_form(key: String = ""):
 	var who = repo.find("persons",key)
-	var c = modal("Add a person" if who.is_empty() else "Edit person","Use a different name or suffix when two people share the same name.")
+	var c = modal("Add a person" if who.is_empty() else "Edit person")
 	var name = input(c,"Name",who.get("name",""))
 	name.placeholder_text = "Full name"
-	var start = date_input(c,"Pay starts from",who.get("payroll_start_date",today()))
-	if not who.get("paid_up_to","").is_empty():
-		start.disabled = true
-		c.add_child(label("The start date is kept after the first payment.",12,MUTED))
-	var master = CheckBox.new()
-	master.text = "This person is a boiler master"
-	master.custom_minimum_size.y = 44
-	c.add_child(master)
-	var salary = service.effective("salaries","person_id",key,today()) if not who.is_empty() else {}
-	master.button_pressed = salary.get("amount",0) > 0
-	var salary_box = column(c)
-	var salary_value = amount_field(salary_box,"Monthly salary",str(int(salary.get("amount",0))) if not salary.is_empty() else "")
-	salary_box.visible = master.button_pressed
-	master.toggled.connect(func(enabled): salary_box.visible = enabled)
 	primary(c,"Add person" if who.is_empty() else "Save changes",func():
-		if master.button_pressed and (not salary_value.text.is_valid_int() or int(salary_value.text) <= 0):
-			notice("Enter the boiler master's monthly salary in whole rupees.",true)
-			return
 		var success = commit_action(func():
 			if key.is_empty():
-				if not service.person(name.text,start.value): return false
-				if master.button_pressed: return service.salary(repo.data.persons.back().id,int(salary_value.text),start.value,"Added with person")
-				return true
+				# Ordinary workers need only a name. Salary eligibility is configured separately.
+				return service.person(name.text,today().substr(0,7)+"-01")
 			var person = repo.find("persons",key)
-			var clean = " ".join(name.text.strip_edges().split(" ",false))
+			var clean = " ".join(name.text.replace("\t"," ").replace("\n"," ").split(" ",false)).strip_edges()
 			if clean.is_empty(): return service.fail("Please enter a name.")
 			for other in repo.data.persons:
 				if other.id != key and other.name.to_lower() == clean.to_lower(): return service.fail("This name is already in your list. Add a suffix to distinguish this person.")
-			if start.value != person.payroll_start_date:
-				if not person.paid_up_to.is_empty(): return service.fail("The start date cannot change after a payment.")
-				for row in repo.data.attendance:
-					if row.person_id == key and row.start < start.value: return service.fail("This start date would leave out saved attendance.")
 			service.audit("person changed",person.duplicate(true))
 			person.name = clean
-			person.payroll_start_date = start.value
-			# Existing salaries are changed through the effective-date settings flow.
-			if master.button_pressed and salary.is_empty(): return service.salary(key,int(salary_value.text),start.value,"BM enabled")
-			if (not salary.is_empty()) and master.button_pressed and int(salary_value.text) != int(salary.amount): return service.fail("Change the salary in Settings so you can choose its effective date.")
-			if not master.button_pressed and int(salary.get("amount",0)) > 0: return service.fail("Stop BM eligibility from Settings with an effective date.")
 			return true,"Person added." if key.is_empty() else "Person updated.")
 		if success: close_modal())
+	quiet(c,"Cancel",close_modal)
+
+func pay_start_form(key: String):
+	var who = repo.find("persons",key)
+	var c = modal("First pay period", "Only change this when entering older work or setting a different first pay period.")
+	var start = date_input(c,"Pay starts from",who.payroll_start_date)
+	primary(c,"Save pay period",func():
+		if commit_action(func():
+			if not who.paid_up_to.is_empty(): return service.fail("The first pay period is fixed after a payment.")
+			for row in repo.data.attendance:
+				if row.person_id == key and row.start < start.value: return service.fail("The date would leave out saved attendance.")
+			service.audit("pay start changed",who.duplicate(true))
+			who.payroll_start_date = start.value
+			return true,"Pay period updated."): close_modal())
 	quiet(c,"Cancel",close_modal)
 
 func person_detail(who: Dictionary):
@@ -670,6 +677,7 @@ func person_detail(who: Dictionary):
 	for entry in repo.data.ledger:
 		if entry.person_id == key: money_summary(money,entry)
 	fold(body,"More options",func(options):
+		if who.paid_up_to.is_empty(): button(options,"Change first pay period",func(): pay_start_form(key))
 		button(options,"Mark inactive" if who.active else "Make active",func(): confirm("Change " + who.name + "'s active status? Their old records will be kept.",func(): commit_action(func():
 			var person = repo.find("persons",key)
 			person.active = not person.active
@@ -857,6 +865,7 @@ func bulk_money_form():
 	var options = []
 	for person in active_rows("persons"):
 		var item = CheckBox.new()
+		item.mouse_filter = Control.MOUSE_FILTER_PASS
 		item.text = person.name
 		item.custom_minimum_size.y = 44
 		c.add_child(item)
@@ -1171,6 +1180,7 @@ func family_form(key: String = ""):
 	for person in active_rows("persons"):
 		if not person.family_id.is_empty() and person.family_id != key: continue
 		var item = CheckBox.new()
+		item.mouse_filter = Control.MOUSE_FILTER_PASS
 		item.text = person.name
 		item.custom_minimum_size.y = 46
 		item.button_pressed = person.id in family.get("members",[])
@@ -1230,8 +1240,11 @@ func mill_form(key: String = ""):
 	var h = service.effective("rates","mill_id",key,today(),"H")
 	var fireman = amount_field(rates,"Fireman · per attendance",str(int(f.amount)) if not f.is_empty() else "")
 	var helper = amount_field(rates,"Helper · per attendance",str(int(h.amount)) if not h.is_empty() else "")
-	var date = date_input(c,"Rates start from",today() if not mill.is_empty() else today().left(8)+"01")
-	var note = input(c,"Note (optional)")
+	var date: PayTrackDateField
+	var note: LineEdit
+	if not mill.is_empty():
+		date = date_input(c,"Rates start from",today())
+		note = input(c,"Note (optional)")
 	primary(c,"Save mill & rates",func():
 		if not fireman.text.is_valid_int() or not helper.text.is_valid_int():
 			notice("Enter whole-rupee rates for both kinds of work.",true)
@@ -1250,7 +1263,9 @@ func mill_form(key: String = ""):
 				if row.name != clean:
 					service.audit("mill renamed",{"id":key,"old":row.name,"new":clean})
 					row.name = clean
-			return service.rate(mill_id,"F",int(fireman.text),date.value,note.text) and service.rate(mill_id,"H",int(helper.text),date.value,note.text),"Mill and rates saved."): close_modal())
+			var effective_date = date.value if is_instance_valid(date) else today().left(8)+"01"
+			var reason = note.text if is_instance_valid(note) else "Initial rates"
+			return service.rate(mill_id,"F",int(fireman.text),effective_date,reason) and service.rate(mill_id,"H",int(helper.text),effective_date,reason),"Mill and rates saved."): close_modal())
 	if not key.is_empty():
 		quiet(c,"Update rates on unpaid attendance",func(): reprice_form(key))
 		quiet(c,"Stop using this mill",func(): confirm("Hide this mill from new attendance? All old records will stay.",func(): commit_action(func():

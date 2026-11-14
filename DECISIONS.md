@@ -15,3 +15,5 @@
 - Initial data empty; optional fictional sample records with five fictional mills.
 - Family preview supports per-member cash/recovery overrides. Combined cash cannot exceed the combined net; defaults allocate cash in member order, displaying each member's jama/advance separately.
 - Owner explicitly approved original rounded total preservation on splits. Store and visibly display an audited split_rounding adjustment on a split row; component formulas remain unchanged. Repeated splitting preserves the original total.
+
+- 14 Nov phone simplification: owner requested no date/BM checkbox when adding people, and no date when adding mills. These forms now use current-month-first-day defaults; existing data stays unchanged. A person's initial period is editable separately before their first settlement. BM salary and later mill-rate changes retain explicit effective dates to preserve correct pay calculations.

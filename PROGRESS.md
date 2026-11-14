@@ -78,3 +78,6 @@ No new hosting account, Cloudflare integration, DNS change, backend, or Android 
 
 ## Next action
 Owner review of the English demo, complete the remaining real-browser/device matrix, then Hindi localisation. No further deployment integration access is missing.
+
+### Phone input and simpler setup (14 Nov 2026)
+Implemented Android Chrome-targeted virtual keyboard/inputmode fixes, numeric-only monetary fields, gesture scrolling through nested controls, scroll-versus-tap handling, keyboard-height and orientation-aware dialogs. Removed dates/BM option from Add person and date/note from Add mill. Existing accounting records and calculation rules preserved. 98/98 domain assertions and 70/70 UI checks pass; Web pack allowlist 57 resources passes. In-app browser digits/letter rejection and simplified forms verified. Physical Android device validation remains with owner. Publishing through the existing isolated PayTrack route.

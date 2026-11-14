@@ -1,0 +1,14 @@
+<!-- Godot's Web keyboard uses a real HTML input behind the canvas. -->
+<style>input, textarea { font-size: 16px; } canvas { touch-action: none; }</style>
+<script>
+document.addEventListener('focusin', function (event) {
+  const field = event.target;
+  if (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) {
+    // The pinned engine assigns lowercase inputmode as a JS property.
+    // Reflect it to the HTML attribute understood by Android and iOS keyboards.
+    if (typeof field.inputmode === 'string') field.setAttribute('inputmode', field.inputmode);
+    field.setAttribute('enterkeyhint', 'done');
+    field.setAttribute('autocomplete', 'off');
+  }
+});
+</script>

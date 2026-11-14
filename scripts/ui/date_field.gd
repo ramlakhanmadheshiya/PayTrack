@@ -15,6 +15,7 @@ static func display(date: String) -> String:
 	return "%d %s %s" % [int(parts[2]),["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][int(parts[1])-1],parts[0]]
 
 func _ready():
+	mouse_filter = Control.MOUSE_FILTER_PASS
 	custom_minimum_size.y = 48
 	icon = preload("res://assets/ui/attendance.svg")
 	icon_alignment = HORIZONTAL_ALIGNMENT_RIGHT
@@ -25,6 +26,7 @@ func _ready():
 
 func open_calendar():
 	var overlay = Control.new()
+	overlay.add_to_group("paytrack_calendar")
 	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	overlay.z_index = 120
 	get_tree().root.get_child(get_tree().root.get_child_count()-1).add_child(overlay)

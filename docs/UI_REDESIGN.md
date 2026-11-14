@@ -36,3 +36,14 @@ The in-app browser is verified. Physical Android-device and native Firefox testi
 - Existing live browser records were retained. No test records were imported into that existing live browser store.
 - Homepage, gh-track, Bill Studio, games and CV returned 200 with unchanged normalized content hashes. Only public/paytrack runtime files changed in the portfolio.
 - Screenshots retained locally in ignored .tools/: paytrack-live-redesign.jpg, paytrack-desktop-redesign.jpg, paytrack-phone-redesign.jpg.
+
+## Phone interaction fixes — 14 November 2026
+- Owner reported Android Chrome scrolling and delayed number entry. Reproduced failed touch-scroll tests before changing gesture handling.
+- Shared touch scrolling handles finger drags before nested cards/buttons consume them, includes a 12 px threshold and bounded momentum, cancels button activation during swipes, and preserves normal taps afterwards. Calendars block underlying page gestures.
+- Enabled Godot's direct HTML virtual-keyboard input path. Reflected the pinned engine's lowercase `inputmode` property into the real HTML attribute so Android Chrome requests its numeric keypad. Input-event changes also trigger validation and dependent calculations when Godot does not emit `text_changed`.
+- All money/rate/salary fields reject letters. Decimal or signed pastes are rejected rather than silently turning ₹12.50 into ₹1,250. Fields can still be cleared and edited.
+- Add person now asks for name only. Boiler-master salary remains in Settings; the first pay period defaults to the current month's first day. Before any settlement, older work can be enabled through person details → More options → Change first pay period. Existing people retain their dates and salaries.
+- Add mill now asks for name and F/H rates only, defaulting initial rate history to the current month's first day. Effective dates and notes remain in the existing-mill rate-change flow.
+- Dialogs resize with the phone keyboard/viewport, focused fields stay in view, and dialog margins update across desktop/phone sizes.
+- Verification: 98 domain assertions and 70 UI/workflow checks pass. New checks cover real Godot touch events plus Android-style emulated mouse events, page and modal swipes, accidental button activation, normal tapping after scrolling, direct text updates, numeric filtering, signed/decimal paste safety, name-only person and date-free mill forms, keyboard-height resizing and desktop-to-phone modal bounds.
+- In-app browser review at 390×844 and 1200×1000: name-only form, scroll access to Settings actions, numeric entry (`1234abc` visibly becomes `1234`), and browser build/config flags verified. Browser records retained; no test payment was saved during this review. No physical Android device is connected, so Gboard/device-specific behaviour still needs owner confirmation after reload.

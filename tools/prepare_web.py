@@ -14,10 +14,15 @@ if not match: raise SystemExit('Godot Web configuration not found; cannot versio
 config=json.loads(match.group(1))
 old=config.get('mainPack','index.pck')
 config['mainPack']=name
+# Use HTML input events on touch keyboards; the IME fallback can delay numeric input.
+config['experimentalVK']=True
 size=config['fileSizes'].pop(old,pack.stat().st_size)
 config['fileSizes'][name]=size
 html=html[:match.start(1)]+json.dumps(config,separators=(',',':'))+html[match.end(1):]
 html=re.sub(r'<meta name="paytrack-build" content="[^"]+">','',html)
+html=re.sub(r'<!-- paytrack-input-start -->.*?<!-- paytrack-input-end -->','',html,flags=re.S)
+input_fix=(root/'assets/web_input.html').read_text()
+html=html.replace('</head>', '<!-- paytrack-input-start -->'+input_fix+'<!-- paytrack-input-end --></head>')
 html=html.replace('</head>',f'<meta name="paytrack-build" content="{build}"></head>')
 html_file.write_text(html)
 # The build directory keeps one current pack; deploy retains two earlier packs for cached HTML.

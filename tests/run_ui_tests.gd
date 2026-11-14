@@ -43,7 +43,7 @@ func run():
 	await process_frame
 	check(click("+ Add a person"),"empty home offers setup")
 	field("Name").text = "Test Worker"
-	field("Pay starts from").value = "2026-11-01"
+	check(field("Pay starts from") == null,"add person asks for name only")
 	click("Add person")
 	check(app.repo.data.persons.size() == 1,"add-person form saves")
 	app.person_form()
@@ -55,15 +55,16 @@ func run():
 	app.close_modal()
 	app.person_form()
 	field("Name").text = "Second Worker"
-	field("Pay starts from").value = "2026-11-01"
+	check(field("Pay starts from") == null,"add person asks for name only")
 	click("Add person")
 	check(app.repo.data.persons.size() == 2,"second person saves")
+	for person in app.repo.data.persons: person.payroll_start_date = "2026-11-01"
 	app.show_page("Settings")
 	app.mill_form()
 	field("Mill name").text = "Test Mill"
 	field("Fireman · per attendance").text = "350"
 	field("Helper · per attendance").text = "250"
-	field("Rates start from").value = "2026-01-01"
+	check(field("Rates start from") == null,"add mill has no date field")
 	click("Save mill & rates")
 	check(app.repo.data.mills.size() == 1 and app.repo.data.rates.size() == 2,"mill form saves both rates atomically")
 	app.show_page("Attendance")
@@ -117,12 +118,13 @@ func run():
 	app.show_page("People")
 	app.person_form()
 	field("Name").text = "Family One"
-	field("Pay starts from").value = "2026-11-01"
+	check(field("Pay starts from") == null,"add person asks for name only")
 	click("Add person")
 	app.person_form()
 	field("Name").text = "Family Two"
-	field("Pay starts from").value = "2026-11-01"
+	check(field("Pay starts from") == null,"add person asks for name only")
 	click("Add person")
+	for person in app.repo.data.persons: person.payroll_start_date = "2026-11-01"
 	app.show_page("Families")
 	click("+ Create a family")
 	field("Family name").text = "Test Family"
@@ -219,7 +221,106 @@ func run():
 	check(click("7"),"calendar offers real day choices")
 	check(date.value == "2026-11-07" and date.text.begins_with("7 Nov"),"calendar stores ISO but shows human date")
 	app.close_modal()
+	await phone_regressions()
 	print("UI RESULT: ",total-failed,"/",total," checks passed")
 	app.queue_free()
 	await process_frame
 	quit(1 if failed else 0)
+
+func swipe(start: Vector2, distance: float):
+	var touch = InputEventScreenTouch.new()
+	touch.position = start
+	touch.pressed = true
+	Input.parse_input_event(touch)
+	emulated_mouse(start,true)
+	await process_frame
+	for step in 8:
+		var drag = InputEventScreenDrag.new()
+		drag.position = start + Vector2(0,distance*(step+1)/8)
+		drag.relative = Vector2(0,distance/8)
+		Input.parse_input_event(drag)
+		await process_frame
+	touch = InputEventScreenTouch.new()
+	touch.position = start+Vector2(0,distance)
+	touch.pressed = false
+	Input.parse_input_event(touch)
+	emulated_mouse(touch.position,false)
+	await process_frame
+
+func emulated_mouse(position: Vector2, pressed: bool):
+	var mouse = InputEventMouseButton.new()
+	mouse.device = -1
+	mouse.button_index = MOUSE_BUTTON_LEFT
+	mouse.position = position
+	mouse.global_position = position
+	mouse.pressed = pressed
+	Input.parse_input_event(mouse)
+
+func phone_regressions():
+	root.size = Vector2i(390,844)
+	app.size = Vector2(390,844)
+	app.responsive()
+	app.show_page("Settings")
+	for i in 5: await process_frame
+	check(app.bottom.visible and not app.side.visible,"phone uses bottom navigation")
+	await swipe(Vector2(80,550),-250)
+	check(app.page_scroll.scroll_vertical > 100,"finger swipe over card content scrolls phone page")
+	app.show_page("Money")
+	await process_frame
+	var amount = field("Amount")
+	amount.text = "123"
+	await process_frame
+	check(amount.text == "123" and amount.observed == "123","mobile direct text update displays digits without a letter")
+	amount.text = "12a3₹,4"
+	amount.caret_column = amount.text.length()
+	amount.text_changed.emit(amount.text)
+	check(amount.text == "1234" and amount.caret_column == 4,"amount typing/paste rejects letters and currency separators")
+	for invalid in ["12.50","-100","+100"]:
+		amount.text = invalid
+		amount.text_changed.emit(invalid)
+		check(amount.text == "1234","amount rejects decimal/signed paste without changing its value")
+	amount.text = ""
+	await process_frame
+	check(amount.text.is_empty(),"amount can be cleared and replaced")
+	app.person_form()
+	check(field("Pay starts from",app.modal_layer) == null and field("Monthly salary",app.modal_layer) == null,"add person contains neither dates nor salary setup")
+	app.close_modal()
+	root.size = Vector2i(1200,900)
+	app.size = Vector2(1200,900)
+	app.responsive()
+	app.mill_form()
+	for i in 4: await process_frame
+	root.size = Vector2i(390,844)
+	app.size = Vector2(390,844)
+	for i in 5: await process_frame
+	var mill_name = field("Mill name",app.modal_layer)
+	check(mill_name.get_global_rect().end.x < 390,"open mill form stays inside screen after desktop-to-phone resize")
+	app.close_modal()
+	# A long modal uses the same gesture path as a page, even over child buttons.
+	var content = app.modal("Scroll test")
+	var clicked = [false]
+	for i in 16: app.button(content,"Test row "+str(i),func(): clicked[0] = true)
+	for i in 5: await process_frame
+	var scroll = content.get_parent()
+	await swipe(content.get_child(3).get_global_rect().get_center(),-200)
+	check(scroll.scroll_vertical > 80,"finger swipe starting on a button scrolls the modal")
+	check(not clicked[0],"swiping a button does not activate it")
+	var target = content.get_child(8).get_global_rect().get_center()
+	var tap = InputEventScreenTouch.new()
+	tap.position = target
+	tap.pressed = true
+	Input.parse_input_event(tap)
+	emulated_mouse(target,true)
+	await process_frame
+	tap = InputEventScreenTouch.new()
+	tap.position = target
+	tap.pressed = false
+	Input.parse_input_event(tap)
+	emulated_mouse(target,false)
+	await process_frame
+	check(clicked[0],"a normal tap after scrolling still activates the button")
+	root.size = Vector2i(390,420)
+	app.size = Vector2(390,420)
+	for i in 5: await process_frame
+	check(scroll.size.y <= 320,"modal shrinks when the phone keyboard reduces available height")
+	app.close_modal()
