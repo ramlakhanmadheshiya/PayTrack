@@ -1,0 +1,9 @@
+.godot/
+build/
+.tools/
+.DS_Store
+*.tmp
+*.bak
+.env*
+*backup*.json
+*.csv
