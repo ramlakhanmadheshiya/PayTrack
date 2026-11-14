@@ -1,719 +1,1364 @@
-extends Control
-const P = preload("res://scripts/domain/payroll.gd")
-const R = preload("res://scripts/storage/repository.gd")
-const S = preload("res://scripts/services/payroll_service.gd")
-var repo = R.new()
-var service = S.new(repo)
-var body: VBoxContainer
-var status: Label
-var navigation: GridContainer
-var current = "Home"
-var import_callback
-var pending_backup = ""
-var preview_slips: Array = []
-var preview_family = ""
-var preview_end = ""
-var preview_person = ""
-var member_overrides = {}
-var fields = {}
+extends "res://scripts/ui/app_support.gd"
+const DateField = preload("res://scripts/ui/date_field.gd")
+const INK = Color("192436")
+const MUTED = Color("758196")
+const BLUE = Color("0877f9")
+var test_mode = false
 var batch_rows = []
+var side: PanelContainer
+var bottom: HBoxContainer
+var page_scroll: ScrollContainer
+var page_margin: MarginContainer
+var top_title: Label
+var nav_buttons = {}
+var layout_grids: Array = []
+var modal_layer: Control
+var chosen_person = ""
+var payment_state = {}
+var current_section = ""
+var toast_timer: Timer
+var modal_message: Label
+var stat_widgets = []
+var action_tiles = []
 
 func _ready():
 	if OS.has_feature("web"):
 		get_window().content_scale_factor = maxf(1.0,float(JavaScriptBridge.eval("window.devicePixelRatio || 1")))
-	var base = Theme.new()
-	base.default_font = preload("res://assets/NotoSans.ttf")
-	base.default_font_size = 16
-	var normal = StyleBoxFlat.new()
-	normal.bg_color = Color.WHITE
-	normal.set_corner_radius_all(12)
-	normal.set_content_margin_all(12)
-	normal.border_color = Color("dee3eb")
-	normal.set_border_width_all(1)
-	base.set_stylebox("normal", "Button", normal)
-	var hover = normal.duplicate()
-	hover.bg_color = Color("eaf3ff")
-	base.set_stylebox("hover", "Button", hover)
-	base.set_stylebox("focus", "Button", hover)
-	base.set_color("font_color", "Button", Color("007aff"))
-	base.set_color("font_hover_color", "Button", Color("005ac4"))
-	base.set_color("font_color", "Label", Color("1d2838"))
-	base.set_color("font_color", "LineEdit", Color("1d2838"))
-	base.set_color("font_color", "OptionButton", Color("1d2838"))
-	base.set_stylebox("normal", "LineEdit", normal)
-	base.set_stylebox("normal", "OptionButton", normal)
-	theme = base
-	var outer = VBoxContainer.new()
-	outer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	add_child(outer)
-	var top = MarginContainer.new()
-	top.add_theme_constant_override("margin_left", 24)
-	top.add_theme_constant_override("margin_right", 24)
-	top.add_theme_constant_override("margin_top", 18)
-	top.add_theme_constant_override("margin_bottom", 12)
-	outer.add_child(top)
-	var header = HBoxContainer.new()
-	top.add_child(header)
-	var brand = label("PayTrack", 28)
-	brand.autowrap_mode = TextServer.AUTOWRAP_OFF
-	brand.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	header.add_child(brand)
-	var badge = label("LOCAL DEMO",13,Color("007aff"))
-	badge.autowrap_mode = TextServer.AUTOWRAP_OFF
-	header.add_child(badge)
-	navigation = GridContainer.new()
-	navigation.columns = 7
-	outer.add_child(navigation)
-	for page in ["Home", "People", "Attendance", "Money", "Pay", "Families", "Settings"]:
-		button(navigation, page, func(): show_page(page))
-	status = label("Local testing data — not synced between devices. Use fictional records only.", 14, Color("64748b"))
-	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	outer.add_child(status)
-	var scroll = ScrollContainer.new()
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	outer.add_child(scroll)
-	var margin = MarginContainer.new()
-	margin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	for edge in ["left", "right", "top", "bottom"]:
-		margin.add_theme_constant_override("margin_" + edge, 28)
-	scroll.add_child(margin)
+	make_theme()
+	var root = HBoxContainer.new()
+	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	root.add_theme_constant_override("separation",0)
+	add_child(root)
+	side = PanelContainer.new()
+	side.custom_minimum_size.x = 220
+	side.add_theme_stylebox_override("panel",box(Color.WHITE,0,20))
+	root.add_child(side)
+	var menu = VBoxContainer.new()
+	menu.add_theme_constant_override("separation",8)
+	side.add_child(menu)
+	var brand = HBoxContainer.new()
+	brand.add_theme_constant_override("separation",10)
+	menu.add_child(brand)
+	var logo = TextureRect.new()
+	logo.texture = preload("res://assets/icon.svg")
+	logo.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	logo.custom_minimum_size = Vector2(34,34)
+	logo.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	logo.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	brand.add_child(logo)
+	var brand_title = label("PayTrack",22,INK)
+	brand_title.autowrap_mode = TextServer.AUTOWRAP_OFF
+	brand.add_child(brand_title)
+	var tagline = label("Your everyday hisab-kitab",11,MUTED)
+	tagline.custom_minimum_size.y = 40
+	menu.add_child(tagline)
+	for item in [["Home","Overview","home"],["Attendance","Attendance","attendance"],["History","Payments","pay"],["People","People & families","people"],["Money","Money book","money"]]:
+		var nav = button(menu,item[1],func(): show_page(item[0]))
+		nav.icon = icon(item[2])
+		nav.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		nav.add_theme_constant_override("h_separation",12)
+		nav.add_theme_font_size_override("font_size",14)
+		nav_buttons[item[0]] = nav
+	var spacer = Control.new()
+	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	menu.add_child(spacer)
+	var settings = button(menu,"Settings",func(): show_page("Settings"))
+	settings.icon = icon("settings")
+	settings.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	nav_buttons.Settings = settings
+	menu.add_child(HSeparator.new())
+	menu.add_child(label("Demo workspace",12,INK))
+	menu.add_child(label("Records stay on this device.",11,MUTED))
+	var main = VBoxContainer.new()
+	main.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	main.add_theme_constant_override("separation",0)
+	root.add_child(main)
+	var bar = PanelContainer.new()
+	bar.add_theme_stylebox_override("panel",box(Color.WHITE,0,20))
+	main.add_child(bar)
+	var bar_row = HBoxContainer.new()
+	bar_row.add_theme_constant_override("separation",12)
+	bar.add_child(bar_row)
+	top_title = label("Overview",16,INK)
+	top_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bar_row.add_child(top_title)
+	var save = button(bar_row,"Save a backup",backup_now)
+	save.icon = icon("backup")
+	save.size_flags_horizontal = Control.SIZE_SHRINK_END
+	save.custom_minimum_size.x = 160
+	save.add_theme_font_size_override("font_size",13)
+	save.custom_minimum_size.y = 40
+	status = label("",14)
+	status.visible = false
+	status.custom_minimum_size.y = 38
+	main.add_child(status)
+	page_scroll = ScrollContainer.new()
+	page_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	page_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	main.add_child(page_scroll)
+	page_margin = MarginContainer.new()
+	page_margin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	page_scroll.add_child(page_margin)
 	body = VBoxContainer.new()
 	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	body.add_theme_constant_override("separation", 18)
-	margin.add_child(body)
-	if not repo.load_data():
-		status.text = repo.error
+	body.add_theme_constant_override("separation",22)
+	page_margin.add_child(body)
+	bottom = HBoxContainer.new()
+	bottom.add_theme_constant_override("separation",2)
+	main.add_child(bottom)
+	for item in [["Home","Home","home"],["Attendance","Attendance","attendance"],["Pay","Pay","pay"],["People","People","people"],["More","More","more"]]:
+		var nav = button(bottom,item[1],func(): show_page(item[0]))
+		nav.text = ""
+		var nav_center = CenterContainer.new()
+		nav_center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		nav_center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		nav.add_child(nav_center)
+		var nav_content = VBoxContainer.new()
+		nav_content.add_theme_constant_override("separation",4)
+		nav_content.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		nav_center.add_child(nav_content)
+		var nav_icon = TextureRect.new()
+		nav_icon.texture = icon(item[2])
+		nav_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		nav_icon.custom_minimum_size = Vector2(20,20)
+		nav_icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		nav_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		nav_content.add_child(nav_icon)
+		var nav_label = label(item[1],10,MUTED)
+		nav_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+		nav_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		nav_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		nav_content.add_child(nav_label)
+		nav.add_theme_font_size_override("font_size",11)
+		nav.custom_minimum_size.y = 62
+		nav_buttons["mobile_"+item[0]] = nav
+	toast_timer = Timer.new()
+	toast_timer.one_shot = true
+	toast_timer.wait_time = 8
+	add_child(toast_timer)
+	toast_timer.timeout.connect(func(): status.hide())
+	var load_error = ""
+	if not test_mode and not repo.load_data(): load_error = repo.error
 	get_viewport().size_changed.connect(responsive)
 	responsive()
 	show_page("Home")
+	if not load_error.is_empty(): notice("Your saved records could not be opened. Restore a backup from Settings. The old save has been kept.",true)
+
+func box(color: Color, radius: int = 16, padding: int = 22, border: Color = Color.TRANSPARENT) -> StyleBoxFlat:
+	var style = StyleBoxFlat.new()
+	style.bg_color = color
+	style.set_corner_radius_all(radius)
+	style.set_content_margin_all(padding)
+	if border.a > 0:
+		style.border_color = border
+		style.set_border_width_all(1)
+	return style
+
+func make_theme():
+	var base = Theme.new()
+	base.default_font = preload("res://assets/NotoSans.ttf")
+	base.default_font_size = 15
+	base.set_color("font_color","Label",INK)
+	for control in ["Button","OptionButton"]:
+		base.set_stylebox("normal",control,box(Color.WHITE,10,12,Color("e4e9f0")))
+		base.set_stylebox("hover",control,box(Color("f0f6ff"),10,12,Color("d4e5fc")))
+		base.set_stylebox("pressed",control,box(Color("e6f0ff"),10,12,Color("bcd6fa")))
+		base.set_stylebox("focus",control,box(Color.TRANSPARENT,10,12,Color("8bbcff")))
+		base.set_color("font_color",control,INK)
+		base.set_color("font_hover_color",control,BLUE)
+		base.set_color("font_pressed_color",control,BLUE)
+		base.set_color("font_hover_pressed_color",control,BLUE)
+		base.set_color("font_disabled_color",control,MUTED)
+		base.set_color("font_focus_color",control,INK)
+	for state in ["normal","read_only"]:
+		base.set_stylebox(state,"LineEdit",box(Color("fafbfd"),9,12,Color("dfe5ee")))
+	base.set_stylebox("focus","LineEdit",box(Color("f7fbff"),9,12,BLUE))
+	base.set_color("font_color","LineEdit",INK)
+	base.set_color("font_placeholder_color","LineEdit",Color("a2adbd"))
+	base.set_stylebox("panel","PopupMenu",box(Color.WHITE,12,10,Color("dfe5ee")))
+	base.set_stylebox("hover","PopupMenu",box(Color("edf4ff"),6,8))
+	base.set_color("font_color","PopupMenu",INK)
+	base.set_color("font_hover_color","PopupMenu",BLUE)
+	base.set_constant("v_separation","PopupMenu",12)
+	var separator = StyleBoxLine.new()
+	separator.color = Color("e5eaf1")
+	separator.thickness = 1
+	base.set_stylebox("separator","HSeparator",separator)
+	base.set_color("font_color","CheckBox",INK)
+	base.set_color("font_hover_color","CheckBox",BLUE)
+	base.set_stylebox("scroll","VScrollBar",box(Color("e6eaf0"),4,0))
+	base.set_stylebox("grabber","VScrollBar",box(Color("c4cedb"),4,0))
+	base.set_stylebox("grabber_highlight","VScrollBar",box(Color("aebdce"),4,0))
+	theme = base
+
+func icon(name: String) -> Texture2D:
+	return load("res://assets/ui/"+name+".svg")
+
+func narrow() -> bool:
+	return get_viewport_rect().size.x < 900
 
 func responsive():
+	if not is_instance_valid(side): return
 	if OS.has_feature("web"):
 		var scale = maxf(1.0,float(JavaScriptBridge.eval("window.devicePixelRatio || 1")))
 		if not is_equal_approx(get_window().content_scale_factor,scale): get_window().content_scale_factor = scale
-	var narrow = get_viewport_rect().size.x < 700
-	navigation.columns = 4 if narrow else 7
-	navigation.add_theme_constant_override("h_separation", 4 if narrow else 8)
-	for child in navigation.get_children():
-		child.add_theme_font_size_override("font_size", 12 if narrow else 16)
+	side.visible = not narrow()
+	bottom.visible = narrow()
+	for edge in ["left","right","top","bottom"]:
+		page_margin.add_theme_constant_override("margin_"+edge,20 if narrow() else 36)
+	for grid in layout_grids:
+		if is_instance_valid(grid.node):
+			var width = get_viewport_rect().size.x
+			grid.node.columns = 1 if width < grid.get("threshold",700) else (2 if grid.columns == 4 and width < 1200 else grid.columns)
+	for widget in stat_widgets:
+		if not is_instance_valid(widget.number): continue
+		widget.number.add_theme_font_size_override("font_size",clampi(140 / maxi(1,widget.number.text.length()),12,20) if narrow() else 28)
+		widget.caption.add_theme_font_size_override("font_size",11 if narrow() else 12)
+		widget.panel.add_theme_stylebox_override("panel",box(Color.WHITE,14,12 if narrow() else 22,Color("e8edf3")))
+	for tile in action_tiles:
+		if is_instance_valid(tile): tile.custom_minimum_size.y = 94 if narrow() else 116
+	if is_instance_valid(top_title): top_title.text = "PayTrack" if narrow() else page_title(current)
 
-func label(text: String, size: int = 16, color: Color = Color("1d2838")) -> Label:
+func label(value: String, size: int = 16, color: Color = INK) -> Label:
 	var node = Label.new()
-	node.text = tr(text)
+	node.text = tr(value)
 	node.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	node.add_theme_font_size_override("font_size", size)
-	node.add_theme_color_override("font_color", color)
-	return node
-
-func text(value: String, size: int = 16):
-	var node = label(value, size)
-	node.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	body.add_child(node)
+	node.add_theme_font_size_override("font_size",size)
+	node.add_theme_color_override("font_color",color)
 	return node
 
 func button(parent: Node, title: String, callback: Callable) -> Button:
 	var node = Button.new()
 	node.text = tr(title)
-	node.clip_text = true
-	node.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	node.custom_minimum_size.y = 46
-	node.pressed.connect(callback)
+	node.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	node.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	node.clip_text = true
 	parent.add_child(node)
+	node.pressed.connect(callback)
 	return node
 
-func card(title: String, subtitle: String = "") -> VBoxContainer:
-	var panel = PanelContainer.new()
-	var style = StyleBoxFlat.new()
-	style.bg_color = Color.WHITE
-	style.set_corner_radius_all(18)
-	style.set_content_margin_all(22)
-	panel.add_theme_stylebox_override("panel", style)
-	body.add_child(panel)
+func primary(parent: Node, title: String, callback: Callable) -> Button:
+	var node = button(parent,title,callback)
+	node.add_theme_stylebox_override("normal",box(BLUE,10,14))
+	node.add_theme_stylebox_override("hover",box(Color("0066df"),10,14))
+	node.add_theme_stylebox_override("pressed",box(Color("0057bd"),10,14))
+	for state in ["font_color","font_hover_color","font_pressed_color","font_hover_pressed_color","font_focus_color"]: node.add_theme_color_override(state,Color.WHITE)
+	return node
+
+func quiet(parent: Node, title: String, callback: Callable) -> Button:
+	var node = button(parent,title,callback)
+	node.add_theme_stylebox_override("normal",box(Color.TRANSPARENT,8,10))
+	node.add_theme_color_override("font_color",BLUE)
+	return node
+
+func panel(parent: Node, title: String = "", subtitle: String = "") -> VBoxContainer:
+	var shell = PanelContainer.new()
+	shell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	shell.add_theme_stylebox_override("panel",box(Color.WHITE,16,22,Color("e8edf3")))
+	parent.add_child(shell)
 	var content = VBoxContainer.new()
-	content.add_theme_constant_override("separation", 12)
-	panel.add_child(content)
-	content.add_child(label(title, 21))
-	if not subtitle.is_empty():
-		var sub = label(subtitle, 14, Color("64748b"))
-		sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		content.add_child(sub)
+	content.add_theme_constant_override("separation",16)
+	shell.add_child(content)
+	if not title.is_empty(): content.add_child(label(title,18))
+	if not subtitle.is_empty(): content.add_child(label(subtitle,13,MUTED))
 	return content
 
-func input(parent: Node, title: String, value: String = "") -> LineEdit:
-	parent.add_child(label(title, 14, Color("64748b")))
-	var node = LineEdit.new()
-	node.text = value
-	node.custom_minimum_size.y = 46
+func card(title: String, subtitle: String = "") -> VBoxContainer:
+	return panel(body,title,subtitle)
+
+func grid(parent: Node, columns: int = 2, threshold: int = 700) -> GridContainer:
+	var node = GridContainer.new()
+	node.columns = 1 if get_viewport_rect().size.x < threshold else (2 if columns == 4 and get_viewport_rect().size.x < 1200 else columns)
+	node.add_theme_constant_override("h_separation",18)
+	node.add_theme_constant_override("v_separation",16)
+	node.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	parent.add_child(node)
+	layout_grids.append({"node":node,"columns":columns,"threshold":threshold})
+	return node
+
+func column(parent: Node) -> VBoxContainer:
+	var node = VBoxContainer.new()
+	node.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	node.add_theme_constant_override("separation",10)
 	parent.add_child(node)
 	return node
 
+func input(parent: Node, title: String, value: String = "") -> LineEdit:
+	var field = column(parent)
+	field.add_child(label(title,13,MUTED))
+	var node = LineEdit.new()
+	node.text = value
+	node.custom_minimum_size.y = 48
+	field.add_child(node)
+	return node
+
+func amount_field(parent: Node, title: String, value: String = "") -> LineEdit:
+	var node = input(parent,title,value)
+	node.virtual_keyboard_type = LineEdit.KEYBOARD_TYPE_NUMBER
+	node.placeholder_text = "₹ 0"
+	return node
+
+func date_input(parent: Node, title: String, value: String) -> PayTrackDateField:
+	var field = column(parent)
+	field.add_child(label(title,13,MUTED))
+	var date = DateField.new()
+	date.value = value
+	field.add_child(date)
+	return date
+
 func select(parent: Node, title: String, collection: Array, title_field: String = "name") -> OptionButton:
-	parent.add_child(label(title, 14, Color("64748b")))
+	var field = column(parent)
+	if not title.is_empty(): field.add_child(label(title,13,MUTED))
 	var node = OptionButton.new()
 	node.fit_to_longest_item = false
 	node.clip_text = true
-	node.custom_minimum_size.y = 46
-	parent.add_child(node)
+	node.custom_minimum_size.y = 48
+	node.get_popup().max_size = Vector2i(0,400)
+	field.add_child(node)
 	for row in collection:
-		node.add_item(row.get(title_field, "") + "  ·  " + row.id)
-		node.set_item_metadata(node.item_count - 1, row.id)
+		node.add_item(row.get(title_field,""))
+		node.set_item_metadata(node.item_count-1,row.id)
+	if collection.is_empty():
+		node.add_item("No people yet" if title.to_lower().contains("person") else "Nothing to choose yet")
+		node.set_item_metadata(0,"")
+		node.disabled = true
 	return node
 
 func choice(parent: Node, title: String, values: Array) -> OptionButton:
-	parent.add_child(label(title, 14, Color("64748b")))
-	var node = OptionButton.new()
-	parent.add_child(node)
-	node.custom_minimum_size.y = 46
-	for value in values:
-		node.add_item(value)
-	return node
+	var records = []
+	for value in values: records.append({"id":value,"name":value})
+	return select(parent,title,records)
 
-func selected(node: OptionButton) -> String:
-	return "" if node.selected < 0 else str(node.get_item_metadata(node.selected))
+func choose(node: OptionButton, key: String):
+	for i in node.item_count:
+		if str(node.get_item_metadata(i)) == key:
+			node.select(i)
+			return
 
-func today() -> String:
-	return Time.get_date_string_from_system()
+func active_rows(collection: String) -> Array:
+	return repo.data[collection].filter(func(row): return row.get("active",true))
 
-func transact(action: Callable):
-	var before = repo.data.duplicate(true)
-	if not action.call():
-		repo.data = before
-		show_page(current)
-		status.text = service.error
-		return
-	service.audit("account edit", current)
-	if not repo.save():
-		repo.data = before
-		show_page(current)
-		status.text = repo.error
-		return
-	show_page(current)
-	status.text = "Saved on this device. Download a backup to keep a portable copy."
+func display_date(value: String) -> String:
+	return DateField.display(value)
 
-func confirm(message: String, callback: Callable):
-	var overlay = Control.new()
-	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	overlay.z_index = 100
-	add_child(overlay)
-	var dim = ColorRect.new()
-	dim.color = Color(0.05,0.10,0.18,0.35)
-	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	overlay.add_child(dim)
-	var center = CenterContainer.new()
-	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	overlay.add_child(center)
-	var panel = PanelContainer.new()
-	panel.custom_minimum_size.x = minf(480.0,get_viewport_rect().size.x-48.0)
-	var style = StyleBoxFlat.new()
-	style.bg_color = Color.WHITE
-	style.set_corner_radius_all(20)
-	style.set_content_margin_all(24)
-	panel.add_theme_stylebox_override("panel",style)
-	center.add_child(panel)
-	var content = VBoxContainer.new()
-	content.add_theme_constant_override("separation",18)
-	panel.add_child(content)
-	content.add_child(label("Review and confirm",22))
-	var description = label(message,16)
-	description.custom_minimum_size.x = minf(432.0,get_viewport_rect().size.x-96.0)
-	description.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	content.add_child(description)
-	button(content,"Confirm",func():
-		overlay.queue_free()
-		callback.call())
-	button(content,"Cancel",overlay.queue_free)
+func page_title(page: String) -> String:
+	return {"Home":"Overview","Pay":"Make a payment","History":"Payments","Money":"Money book","People":"People & families","More":"More"}.get(page,page)
 
-func show_page(page: String):
-	current = page
-	fields = {}
+func heading(title: String, subtitle: String = ""):
+	var c = column(body)
+	c.add_child(label(title,30 if not narrow() else 26))
+	if not subtitle.is_empty(): c.add_child(label(subtitle,14,MUTED))
+
+func clear_body():
+	layout_grids = []
+	stat_widgets = []
+	action_tiles = []
 	for child in body.get_children():
 		body.remove_child(child)
 		child.queue_free()
-	text(page if page != "Home" else "Your work, in balance.", 34)
+	page_scroll.scroll_vertical = 0
+
+func show_page(page: String):
+	current = page
+	current_section = ""
+	clear_body()
+	status.hide()
+	top_title.text = "PayTrack" if narrow() else page_title(page)
+	for key in nav_buttons:
+		var active = key.trim_prefix("mobile_") == page or (page == "Pay" and key == "History")
+		nav_buttons[key].add_theme_stylebox_override("normal",box(Color("edf4ff") if active else Color.TRANSPARENT,9,12))
+		nav_buttons[key].add_theme_color_override("font_color",BLUE if active else MUTED)
 	match page:
 		"Home": home()
 		"People": people()
 		"Attendance": attendance_page()
 		"Money": money_page()
 		"Pay": pay_page()
+		"History": history_page()
 		"Families": families_page()
 		"Settings": settings_page()
+		"More": more_page()
+
+func notice(message: String, error: bool = false):
+	if error and is_instance_valid(modal_layer) and is_instance_valid(modal_message):
+		modal_message.text = friendly_error(message)
+		modal_message.show()
+	status.text = "   " + friendly_error(message)
+	status.add_theme_color_override("font_color",Color("b44333") if error else Color("22744e"))
+	status.show()
+	if is_instance_valid(toast_timer):
+		toast_timer.stop()
+		if not error: toast_timer.start()
+
+func friendly_error(message: String) -> String:
+	return message.replace("Invalid range, before payroll start, or already paid period.","Check the dates. Attendance must be on or after the person’s pay start date, and after their last payment.").replace("Stale payment preview. Preview again.","The records changed. Please calculate this payment again.").replace("Invalid actual cash payment date", "Choose the date you gave the money").replace("Recovery exceeds outstanding advance.","The amount to recover is more than the remaining loan.").replace("Already paid through this date, or before payroll start.","This date has already been paid, or is before the person's start date.").replace("Duplicate normalized name", "This name is already in your list")
+
+func commit_action(action: Callable, success: String, refresh: bool = true) -> bool:
+	var before = repo.data.duplicate(true)
+	if not action.call():
+		repo.data = before
+		notice(service.error,true)
+		return false
+	service.audit("account edit",current)
+	if not repo.save():
+		repo.data = before
+		notice(repo.error,true)
+		return false
+	if refresh: show_page(current)
+	notice(success)
+	return true
+
+func transact(action: Callable):
+	commit_action(action,"Saved.")
+
+func modal(title: String, subtitle: String = "") -> VBoxContainer:
+	if is_instance_valid(modal_layer): modal_layer.queue_free()
+	modal_layer = Control.new()
+	modal_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	modal_layer.z_index = 100
+	add_child(modal_layer)
+	var dim = ColorRect.new()
+	dim.color = Color(0.06,0.10,0.17,0.32)
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	modal_layer.add_child(dim)
+	var inset = MarginContainer.new()
+	inset.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	for edge in ["left","right","top","bottom"]: inset.add_theme_constant_override("margin_"+edge,18 if narrow() else 48)
+	modal_layer.add_child(inset)
+	var center = CenterContainer.new()
+	inset.add_child(center)
+	var shell = PanelContainer.new()
+	shell.custom_minimum_size.x = minf(520,get_viewport_rect().size.x-36)
+	shell.add_theme_stylebox_override("panel",box(Color.WHITE,20,24))
+	center.add_child(shell)
+	var modal_scroll = ScrollContainer.new()
+	modal_scroll.custom_minimum_size.y = minf(520,get_viewport_rect().size.y-150)
+	modal_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	modal_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	shell.add_child(modal_scroll)
+	var c = VBoxContainer.new()
+	c.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	c.add_theme_constant_override("separation",16)
+	c.custom_minimum_size.x = minf(472,get_viewport_rect().size.x-84)
+	modal_scroll.add_child(c)
+	c.add_child(label(title,23))
+	if not subtitle.is_empty(): c.add_child(label(subtitle,14,MUTED))
+	modal_message = label("",13,Color("b44333"))
+	modal_message.hide()
+	c.add_child(modal_message)
+	c.minimum_size_changed.connect(func(): fit_modal(modal_scroll,c))
+	call_deferred("fit_modal",modal_scroll,c)
+	return c
+
+func fit_modal(scroll: ScrollContainer, content: VBoxContainer):
+	if is_instance_valid(scroll) and is_instance_valid(content):
+		scroll.custom_minimum_size.y = minf(content.get_combined_minimum_size().y,get_viewport_rect().size.y-150)
+
+func close_modal():
+	if is_instance_valid(modal_layer):
+		remove_child(modal_layer)
+		modal_layer.queue_free()
+
+func confirm(message: String, callback: Callable):
+	var c = modal("Please check",message)
+	primary(c,"Confirm",func():
+		close_modal()
+		callback.call())
+	quiet(c,"Go back",close_modal)
+
+func fold(parent: Node, title: String, build: Callable) -> VBoxContainer:
+	var target = column(parent)
+	var content = column(target)
+	content.hide()
+	var toggle = quiet(target,title + "  +",func():
+		if content.get_child_count() == 0: build.call(content)
+		content.visible = not content.visible)
+	target.move_child(toggle,0)
+	return content
+
+func empty_state(parent: Node, title: String, description: String):
+	var c = panel(parent)
+	c.add_child(label(title,19))
+	c.add_child(label(description,14,MUTED))
+	return c
 
 func home():
-	text("A clear view of attendance, money and every payment.", 18)
-	var summary = card("A little clarity for payday", "Your records stay in this browser. Nothing is uploaded or synced.")
-	summary.add_child(label("%d people     ·     %d attendance entries     ·     %d payments" % [repo.data.persons.size(), repo.data.attendance.size(), repo.data.settlements.size()]))
-	for action in [["Add Attendance", "Attendance"], ["Pay Someone", "Pay"], ["Money Entry", "Money"], ["Manage People", "People"]]:
-		button(summary, action[0] + "  >", func(): show_page(action[1]))
-	var recent = card("Recent payments")
-	if repo.data.settlements.is_empty():
-		recent.add_child(label("A fresh start. Your first recorded payment will appear here.", 15))
-	for payment in repo.data.settlements.slice(-5):
-		button(recent, payment.id + "  ·  " + payment.paid_date + "  ·  " + P.money(int(payment.cash)) + ("  Cancelled" if payment.cancelled else ""), func(): receipt(payment))
+	heading("Today’s overview",display_date(today()))
+	var intro = PanelContainer.new()
+	intro.add_theme_stylebox_override("panel",box(Color("eaf3ff"),16,18))
+	body.add_child(intro)
+	var intro_row = HBoxContainer.new()
+	intro.add_child(intro_row)
+	var message = label("Demo workspace · Your entries stay on this device. Save a backup to keep a copy.",13,Color("45698f"))
+	message.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	intro_row.add_child(message)
 	if repo.data.persons.is_empty():
-		button(body, "Try fictional sample data", seed_demo)
-	backup_reminder()
+		var welcome = card("Let's get your book ready","Add the people you pay and the mills they work at. You can then enter attendance and check the exact amount to pay.")
+		var steps = grid(welcome,2,620)
+		var people_step = panel(steps,"1. Add your people","A name and the date their pay starts.")
+		primary(people_step,"+ Add a person",func(): person_form())
+		var mill_step = panel(steps,"2. Add a mill","Set the fireman and helper rates once.")
+		button(mill_step,"+ Add a mill",func(): mill_form())
+		quiet(welcome,"Just exploring? Try sample people",seed_demo)
+		return
+	var actions = grid(body,3,680)
+	for item in [["Attendance","attendance","Attendance","Enter shifts received from a mill."],["Pay","pay","Payments","Check the amount and pay someone."],["Money","money","Money book","Add kharchi, advance or jama."]]:
+		quick_action(actions,item[2],item[3],item[0],item[1])
+	var totals = grid(body,3,0)
+	var paid = 0
+	var payment_count = 0
+	for payment in repo.data.settlements:
+		if not payment.cancelled and payment.paid_date.left(7) == today().left(7):
+			paid += int(payment.cash)
+			payment_count += 1
+	var unpaid = {}
+	for row in repo.data.attendance:
+		if row.settlement_id.is_empty(): unpaid[row.person_id] = true
+	for metric in [[str(active_rows("persons").size()),"People"],[str(unpaid.size()),"Unpaid work"],[P.money(paid),"Paid this month"]]:
+		var c = panel(totals)
+		if narrow(): c.get_parent().add_theme_stylebox_override("panel",box(Color.WHITE,14,12,Color("e8edf3")))
+		var number = label(metric[0],clampi(140 / maxi(1,str(metric[0]).length()),12,20) if narrow() else 28)
+		number.autowrap_mode = TextServer.AUTOWRAP_OFF
+		c.add_child(number)
+		var caption = label(metric[1],11 if narrow() else 12,MUTED)
+		c.add_child(caption)
+		stat_widgets.append({"number":number,"caption":caption,"panel":c.get_parent()})
+	var lower = grid(body,2,1000)
+	var ready = panel(lower,"People to pay")
+	var ready_count = 0
+	for who in active_rows("persons"):
+		if not who.family_id.is_empty(): continue
+		var slip = service.preview(who.id,today())
+		if slip.has("error") or int(slip.totals.net) <= 0: continue
+		person_row(ready,who.name,"Through " + display_date(today()),P.money(int(slip.totals.net)),func(): open_pay(who.id))
+		ready_count += 1
+		if ready_count >= 4: break
+	for family in active_rows("families"):
+		if ready_count >= 4: break
+		var family_pay = service.family_preview(family.id,today())
+		if family_pay.has("error") or int(family_pay.net) <= 0: continue
+		person_row(ready,family.name,"Family payment",P.money(int(family_pay.net)),func(): open_pay(family.id))
+		ready_count += 1
+	if ready_count == 0: ready.add_child(label("No pending amount yet. Add attendance to get started.",14,MUTED))
+	var recent = panel(lower,"Recent payments")
+	var payments = repo.data.settlements.filter(func(item): return not item.cancelled)
+	payments.reverse()
+	for payment in payments.slice(0,4):
+		person_row(recent,payment_name(payment),display_date(payment.paid_date),P.money(int(payment.cash)),func(): receipt(payment))
+	if payments.is_empty(): recent.add_child(label("Your recorded payments will appear here.",14,MUTED))
+	quiet(recent,"View all payments",func(): show_page("History"))
 
-func seed_demo():
-	transact(func():
-		service.person("Aarav Demo", "2026-11-01")
-		service.person("Meera Demo", "2026-11-01")
-		for name in ["Willow Demo", "Maple Demo", "Cedar Demo", "Elm Demo", "Pine Demo"]:
-			service.mill(name)
-			var key = repo.data.mills.back().id
-			service.rate(key,"F",350,"2026-01-01")
-			service.rate(key,"H",250,"2026-01-01")
-		service.salary(repo.data.persons[0].id,24000,"2026-11-01")
-		return true)
+func person_row(parent: Node, title: String, subtitle: String, action: String, callback: Callable):
+	var row = HBoxContainer.new()
+	row.add_theme_constant_override("separation",12)
+	parent.add_child(row)
+	var details = column(row)
+	details.add_child(label(title,15))
+	details.add_child(label(subtitle,12,MUTED))
+	var next = quiet(row,action,callback)
+	next.size_flags_horizontal = Control.SIZE_SHRINK_END
+	next.custom_minimum_size.x = 80
+	parent.add_child(HSeparator.new())
+
+func payment_name(payment: Dictionary) -> String:
+	if not payment.get("family_name","").is_empty(): return payment.family_name
+	return payment.slips[0].name if not payment.slips.is_empty() else "Payment"
+
+func open_pay(key: String = ""):
+	chosen_person = key
+	show_page("Pay")
+
+func backup_now():
+	repo.data.settings.last_backup_at = Time.get_datetime_string_from_system(true)
+	if not repo.save():
+		notice(repo.error,true)
+		return
+	download(repo.backup(),"paytrack-backup.json","application/json")
+	notice("Backup downloaded. Keep the file somewhere safe.")
 
 func people():
-	var c = card("People", "Permanent IDs stay with each person. Use a suffix to distinguish matching names.")
-	var search_box = input(c,"Search name or ID")
-	var results = VBoxContainer.new()
-	c.add_child(results)
+	heading("People & families","Everyone you work with, in one simple list.")
+	var tabs = HBoxContainer.new()
+	body.add_child(tabs)
+	button(tabs,"People",func(): show_page("People"))
+	quiet(tabs,"Families",func(): show_page("Families"))
+	var c = card("Your people")
+	primary(c,"+ Add a person",func(): person_form())
+	var search = input(c,"Find a person")
+	search.placeholder_text = "Search by name or person number"
+	var list = column(c)
 	var refresh = func(query: String):
-		for child in results.get_children():
-			results.remove_child(child)
+		for child in list.get_children():
+			list.remove_child(child)
 			child.queue_free()
-		for who in service.search(query):
-			button(results, who.id + "  ·  " + who.name + ("  ·  Inactive" if not who.active else "") + ("  ·  " + who.family_id if not who.family_id.is_empty() else ""), func(): person_detail(who))
-	search_box.text_changed.connect(refresh)
+		var found = service.search(query)
+		if found.is_empty(): list.add_child(label("No people found. Add a person or try another name.",14,MUTED))
+		for who in found:
+			var detail = who.id + (" · Inactive" if not who.active else "")
+			if not who.family_id.is_empty(): detail += " · " + repo.find("families",who.family_id).get("name","Family")
+			person_row(list,who.name,detail,"View",func(): person_detail(repo.find("persons",who.id)))
+	search.text_changed.connect(refresh)
 	refresh.call("")
-	var add = card("Add a person")
-	var name = input(add,"Full name")
-	var start = input(add,"Payroll start · YYYY-MM-DD",today())
-	button(add,"Add person",func(): transact(func(): return service.person(name.text,start.text)))
+
+func person_form(key: String = ""):
+	var who = repo.find("persons",key)
+	var c = modal("Add a person" if who.is_empty() else "Edit person","Use a different name or suffix when two people share the same name.")
+	var name = input(c,"Name",who.get("name",""))
+	name.placeholder_text = "Full name"
+	var start = date_input(c,"Pay starts from",who.get("payroll_start_date",today()))
+	if not who.get("paid_up_to","").is_empty():
+		start.disabled = true
+		c.add_child(label("The start date is kept after the first payment.",12,MUTED))
+	var master = CheckBox.new()
+	master.text = "This person is a boiler master"
+	master.custom_minimum_size.y = 44
+	c.add_child(master)
+	var salary = service.effective("salaries","person_id",key,today()) if not who.is_empty() else {}
+	master.button_pressed = salary.get("amount",0) > 0
+	var salary_box = column(c)
+	var salary_value = amount_field(salary_box,"Monthly salary",str(int(salary.get("amount",0))) if not salary.is_empty() else "")
+	salary_box.visible = master.button_pressed
+	master.toggled.connect(func(enabled): salary_box.visible = enabled)
+	primary(c,"Add person" if who.is_empty() else "Save changes",func():
+		if master.button_pressed and (not salary_value.text.is_valid_int() or int(salary_value.text) <= 0):
+			notice("Enter the boiler master's monthly salary in whole rupees.",true)
+			return
+		var success = commit_action(func():
+			if key.is_empty():
+				if not service.person(name.text,start.value): return false
+				if master.button_pressed: return service.salary(repo.data.persons.back().id,int(salary_value.text),start.value,"Added with person")
+				return true
+			var person = repo.find("persons",key)
+			var clean = " ".join(name.text.strip_edges().split(" ",false))
+			if clean.is_empty(): return service.fail("Please enter a name.")
+			for other in repo.data.persons:
+				if other.id != key and other.name.to_lower() == clean.to_lower(): return service.fail("This name is already in your list. Add a suffix to distinguish this person.")
+			if start.value != person.payroll_start_date:
+				if not person.paid_up_to.is_empty(): return service.fail("The start date cannot change after a payment.")
+				for row in repo.data.attendance:
+					if row.person_id == key and row.start < start.value: return service.fail("This start date would leave out saved attendance.")
+			service.audit("person changed",person.duplicate(true))
+			person.name = clean
+			person.payroll_start_date = start.value
+			# Existing salaries are changed through the effective-date settings flow.
+			if master.button_pressed and salary.is_empty(): return service.salary(key,int(salary_value.text),start.value,"BM enabled")
+			if (not salary.is_empty()) and master.button_pressed and int(salary_value.text) != int(salary.amount): return service.fail("Change the salary in Settings so you can choose its effective date.")
+			if not master.button_pressed and int(salary.get("amount",0)) > 0: return service.fail("Stop BM eligibility from Settings with an effective date.")
+			return true,"Person added." if key.is_empty() else "Person updated.")
+		if success: close_modal())
+	quiet(c,"Cancel",close_modal)
 
 func person_detail(who: Dictionary):
-	show_page("People")
-	var c = card(who.name + "  ·  " + who.id, "Payroll start: " + who.payroll_start_date + "   ·   Paid through: " + ("Not yet" if who.paid_up_to.is_empty() else who.paid_up_to))
-	var name = input(c,"Name",who.name)
-	var payroll_start = input(c,"Payroll start",who.payroll_start_date)
-	button(c,"Update payroll start",func(): transact(func():
-		if not P.valid_date(payroll_start.text) or not who.paid_up_to.is_empty(): return service.fail("Payroll start is editable only before first payment.")
-		for row in repo.data.attendance:
-			if row.person_id == who.id and row.start < payroll_start.text: return service.fail("New start would exclude attendance.")
-		service.audit("payroll start",{"id":who.id,"old":who.payroll_start_date,"new":payroll_start.text})
-		who.payroll_start_date = payroll_start.text
-		return true))
-	button(c,"Save name",func(): transact(func():
-		var clean = " ".join(name.text.split(" ",false)).strip_edges()
-		for other in repo.data.persons:
-			if other.id != who.id and other.name.to_lower() == clean.to_lower():
-				return service.fail("That name already exists.")
-		if clean.is_empty(): return service.fail("Enter a name.")
-		service.audit("person renamed",{"id":who.id,"old":who.name,"new":clean})
-		who.name = clean
-		return true))
-	button(c,"Mark inactive" if who.active else "Reactivate",func(): transact(func():
-		who.active = not who.active
-		return true))
+	clear_body()
+	var key: String = who.id
+	quiet(body,"‹ Back to people",func(): show_page("People"))
+	heading(who.name,who.id + " · Pay starts " + display_date(who.payroll_start_date))
+	var c = card("At a glance")
+	c.add_child(label("Paid through " + display_date(who.paid_up_to) if not who.paid_up_to.is_empty() else "No payment recorded yet",14,MUTED))
+	var actions = grid(c,2)
+	primary(actions,"Make a payment",func(): open_pay(who.family_id if not who.family_id.is_empty() else key))
+	button(actions,"Edit details",func(): person_form(key))
+	var pending = card("Attendance")
+	var count = 0
 	for row in repo.data.attendance:
-		if row.person_id == who.id:
-			c.add_child(label(row.id + " · " + row.role + " · " + row.start + " → " + row.end + " · " + ("Unpaid" if row.settlement_id.is_empty() else row.settlement_id),14))
-	for event in repo.data.ledger:
-		if event.person_id == who.id:
-			c.add_child(label(event.kind.capitalize() + " · " + P.money(int(event.amount)) + " · " + event.date,14))
+		if row.person_id != key: continue
+		attendance_summary(pending,row)
+		count += 1
+	if count == 0: pending.add_child(label("No attendance entered yet.",14,MUTED))
+	var money = card("Money entries")
+	for entry in repo.data.ledger:
+		if entry.person_id == key: money_summary(money,entry)
+	fold(body,"More options",func(options):
+		button(options,"Mark inactive" if who.active else "Make active",func(): confirm("Change " + who.name + "'s active status? Their old records will be kept.",func(): commit_action(func():
+			var person = repo.find("persons",key)
+			person.active = not person.active
+			return true,"Person updated."))))
 
 func attendance_page():
-	var c = card("Batch attendance", "Set the mill and dates once. Enter supplied counts; one attendance is a 12-hour shift.")
-	var mill = select(c,"Mill",repo.data.mills)
-	var start = input(c,"From · YYYY-MM-DD",today())
-	var end = input(c,"Through · YYYY-MM-DD",today())
-	var rows_box = VBoxContainer.new()
-	c.add_child(rows_box)
+	heading("Add attendance","Choose a mill and period, then enter the shifts you received.")
+	if active_rows("persons").is_empty() or active_rows("mills").is_empty():
+		var empty = empty_state(body,"A quick setup first","Add your people and a mill before entering attendance.")
+		primary(empty,"Add a person",func(): person_form())
+		button(empty,"Set up a mill",func(): mill_form())
+		return
+	var c = card("1. Mill and dates")
+	var mill = select(c,"Mill",active_rows("mills"))
+	var dates = grid(c,2)
+	var start = date_input(dates,"From",today().left(8)+"01")
+	var end = date_input(dates,"Through",today())
+	var workers = card("2. People and shifts","One attendance is one 12-hour shift. Use 0.5 for a half shift.")
+	var rows_box = column(workers)
 	batch_rows = []
 	var add_row = func():
-		var row_box = VBoxContainer.new()
-		rows_box.add_child(row_box)
-		var who = select(row_box,"Person",repo.data.persons)
-		var role = choice(row_box,"Post",["F","H","BM"])
-		var units = input(row_box,"Attendances · halves accepted","0")
-		var hours = input(row_box,"Extra hours · quarters accepted","0")
-		var rate_label = label("",14)
+		var wrapper = PanelContainer.new()
+		wrapper.add_theme_stylebox_override("panel",box(Color("f7f9fc"),12,16))
+		rows_box.add_child(wrapper)
+		var row_box = column(wrapper)
+		var first = grid(row_box,4,600)
+		var who = select(first,"Person",active_rows("persons"))
+		var role = choice(first,"Work",["Fireman","Helper","Boiler master"])
+		var numbers = first
+		var units = input(numbers,"Attendances","")
+		units.placeholder_text = "e.g. 26 or 26.5"
+		units.virtual_keyboard_type = LineEdit.KEYBOARD_TYPE_NUMBER_DECIMAL
+		var hours_box = column(numbers)
+		var hours = input(hours_box,"Extra hours (if any)","")
+		hours.placeholder_text = "0"
+		hours.virtual_keyboard_type = LineEdit.KEYBOARD_TYPE_NUMBER_DECIMAL
+		var rate_label = label("",12,MUTED)
 		row_box.add_child(rate_label)
-		var update = func(_index = 0):
-			var value = service.effective("rates","mill_id",selected(mill),start.text,role.get_item_text(role.selected))
-			rate_label.text = "BM fixed salary + extra shifts" if role.selected == 2 else "Saved rate: " + P.money(int(value.get("amount",0))) + " / shift"
+		var row = {"person":who,"role":role,"units":units,"hours":hours,"wrapper":wrapper}
+		batch_rows.append(row)
+		var remove = quiet(row_box,"Remove this person",func():
+			if batch_rows.size() <= 1:
+				notice("Keep at least one person in this entry.",true)
+				return
+			batch_rows.erase(row)
+			wrapper.queue_free()
+			for other in batch_rows: other.remove.visible = batch_rows.size() > 1)
+		row.remove = remove
+		for other in batch_rows: other.remove.visible = batch_rows.size() > 1
+		var update = func(_unused = 0):
+			var post = ["F","H","BM"][role.selected]
+			hours_box.visible = post != "BM"
+			var value = service.effective("rates","mill_id",selected(mill),start.value,post)
+			rate_label.text = "Fixed monthly salary. Attendance is used for extra shifts." if post == "BM" else P.money(int(value.get("amount",0))) + " per attendance · rate filled for you"
 		role.item_selected.connect(update)
 		mill.item_selected.connect(update)
-		start.text_changed.connect(func(_value): update.call())
+		start.date_changed.connect(update)
 		update.call()
-		batch_rows.append({"person":who,"role":role,"units":units,"hours":hours})
-	button(c,"+ Add another person",add_row)
+	button(workers,"+ Add another person",add_row)
 	add_row.call()
-	var overlap = CheckBox.new()
-	overlap.text = "I reviewed and confirm overlapping rows"
-	c.add_child(overlap)
-	button(c,"Save batch",func(): transact(func():
-		for row in batch_rows:
-			var halves = decimal_units(row.units.text,2)
-			var minutes = decimal_units(row.hours.text,60)
-			if halves < 0 or minutes < 0:
-				return service.fail("Use non-negative half attendances and quarter hours.")
-			if not service.attendance(selected(row.person),selected(mill),row.role.get_item_text(row.role.selected),start.text,end.text,halves,minutes,overlap.button_pressed):
-				return false
-		return true))
-	var edit = card("Correct received attendance", "Unpaid rows only. Existing rates stay frozen; every correction records a reason.")
-	var edit_rows = []
-	for row in repo.data.attendance:
-		if row.settlement_id.is_empty(): edit_rows.append({"id":row.id,"name":row.person_id + " · " + row.role + " · " + row.start + " / " + row.end})
-	var edit_row = select(edit,"Unpaid row",edit_rows)
-	var edit_start = input(edit,"Corrected from",today())
-	var edit_end = input(edit,"Corrected through",today())
-	var edit_units = input(edit,"Corrected attendances","0")
-	var edit_hours = input(edit,"Corrected extra hours","0")
-	var edit_reason = input(edit,"Reason for correction")
-	button(edit,"Save audited correction",func(): transact(func(): return service.edit_attendance(selected(edit_row),edit_start.text,edit_end.text,decimal_units(edit_units.text,2),decimal_units(edit_hours.text,60),edit_reason.text,overlap.button_pressed)))
-	var split_card = card("Split an unpaid range", "Supply actual counts for the first part. The remaining counts stay in the second part.")
-	var entries = []
-	for row in repo.data.attendance:
-		if row.settlement_id.is_empty(): entries.append({"id":row.id,"name":row.person_id + " · " + row.start + " → " + row.end})
-	var entry = select(split_card,"Entry",entries)
-	var through = input(split_card,"First part ends",today())
-	var halves = input(split_card,"First part attendances","0")
-	var mins = input(split_card,"First part extra hours","0")
-	button(split_card,"Split and preserve totals",func(): transact(func(): return service.split(selected(entry),through.text,decimal_units(halves.text,2),decimal_units(mins.text,60))))
+	primary(workers,"Save attendance",func(): save_attendance(selected(mill),start.value,end.value,false))
+	fold(body,"View previous attendance",func(list):
+		var rows = repo.data.attendance.duplicate()
+		rows.reverse()
+		for row in rows.slice(0,30): attendance_summary(list,row))
 
-func decimal_units(value: String, scale: int) -> int:
-	var bits = value.strip_edges().split(".")
-	if bits.size() > 2 or not bits[0].is_valid_int() or int(bits[0]) < 0: return -1
-	var fraction = 0
-	if bits.size() == 2:
-		if not bits[1].is_valid_int() or bits[1].length() > 2: return -1
-		fraction = int(bits[1].rpad(2,"0"))
-	if (fraction * scale) % 100 != 0: return -1
-	return int(bits[0]) * scale + fraction * scale / 100
+func save_attendance(mill: String, start: String, end: String, allow_overlap: bool):
+	var success = commit_action(func():
+		for row in batch_rows:
+			var units = decimal_units(row.units.text,2)
+			var minutes = decimal_units("0" if row.hours.text.is_empty() else row.hours.text,60)
+			var role = ["F","H","BM"][row.role.selected]
+			if units < 0 or minutes < 0: return service.fail("Enter attendances in halves (such as 26.5) and extra hours in quarters (such as 1.25).")
+			if not service.attendance(selected(row.person),mill,role,start,end,units,0 if role == "BM" else minutes,allow_overlap): return false
+		return true,"Attendance saved.",false)
+	if success:
+		show_page("Attendance")
+		notice("Attendance saved. You can add the next batch.")
+	elif service.error.begins_with("Overlapping") and not allow_overlap:
+		confirm("There is already attendance for this person, mill and work during these dates. Save this as an additional entry?",func(): save_attendance(mill,start,end,true))
+
+func attendance_summary(parent: Node, row: Dictionary):
+	var who = repo.find("persons",row.person_id)
+	var name = who.get("name",row.person_id)
+	var mill = repo.find("mills",row.mill_id).get("name",row.mill_id)
+	var description = mill + " · " + {"F":"Fireman","H":"Helper","BM":"Boiler master"}.get(row.role,row.role) + " · " + str(int(row.half_units)/2.0) + " shifts"
+	var date_range = display_date(row.start)+" – "+display_date(row.end)
+	person_row(parent,name,description+"\n"+date_range,"Edit" if row.settlement_id.is_empty() else "Paid",func():
+		if row.settlement_id.is_empty(): attendance_edit(row.id)
+		else: notice("This attendance is part of a recorded payment and cannot be changed.",true))
+
+func attendance_edit(key: String):
+	var row = repo.find("attendance",key)
+	var c = modal("Change attendance",repo.find("persons",row.person_id).name)
+	var dates = grid(c,2)
+	var start = date_input(dates,"From",row.start)
+	var end = date_input(dates,"Through",row.end)
+	var units = input(c,"Attendances",str(int(row.half_units)/2.0))
+	var hours = input(c,"Extra hours",str(int(row.minutes)/60.0))
+	hours.get_parent().visible = row.role != "BM"
+	var reason = input(c,"Reason for this change")
+	primary(c,"Save changes",func():
+		if commit_action(func(): return service.edit_attendance(key,start.value,end.value,decimal_units(units.text,2),decimal_units(hours.text,60),reason.text),"Attendance updated."): close_modal())
+	if row.role != "BM": quiet(c,"Correct the rate for this entry",func(): rate_form(key))
+	quiet(c,"Split this entry for an early payment",func(): split_form(key,today()))
+	quiet(c,"Cancel",close_modal)
+
+func split_form(key: String, through: String, after: Callable = Callable()):
+	var row = repo.find("attendance",key)
+	var c = modal("Attendance before the pay date","This entry covers " + display_date(row.start) + " to " + display_date(row.end) + ". Enter the actual shifts worked in the first part.")
+	var date = date_input(c,"First part ends",through if through >= row.start and through < row.end else row.start)
+	var units = input(c,"Attendances in the first part")
+	var hours = input(c,"Extra hours in the first part","0")
+	hours.get_parent().visible = row.role != "BM"
+	c.add_child(label("The remaining shifts stay for the next payment. The total amount is kept the same.",12,MUTED))
+	primary(c,"Split attendance",func():
+		if commit_action(func(): return service.split(key,date.value,decimal_units(units.text,2),decimal_units(hours.text,60)),"Attendance split.",false):
+			close_modal()
+			if after.is_valid(): after.call()
+			else: show_page("Attendance"))
+	quiet(c,"Go back",close_modal)
+
+var money_kind = "kharchi"
 
 func money_page():
-	var c = card("Money entry", "Jama is owed to a person. Kharchi is already given. Advance is a recoverable loan.")
-	var who = select(c,"Person",repo.data.persons)
-	var kind = choice(c,"Type",["jama","kharchi","advance"])
-	var amount = input(c,"Whole rupees","0")
-	var date = input(c,"Date",today())
-	var installment = input(c,"Suggested recovery per settlement · advances only","0")
-	button(c,"Save money entry",func(): transact(func():
-		if not amount.text.is_valid_int() or not installment.text.is_valid_int(): return service.fail("Enter whole rupees.")
-		return service.ledger(selected(who),kind.get_item_text(kind.selected),int(amount.text),date.text,int(installment.text))))
-	var bulk = card("Bulk kharchi", "Each day is posted separately so an early payment only includes eligible dates.")
-	var selections = []
-	for person in repo.data.persons:
-		var check = CheckBox.new()
-		check.text = person.name + " · " + person.id
-		bulk.add_child(check)
-		selections.append([check,person.id])
-	var start = input(bulk,"From",today())
-	var end = input(bulk,"Through",today())
-	var daily = input(bulk,"Rupees per person per day","0")
-	button(bulk,"Record daily kharchi",func(): transact(func():
-		var ids = []
-		for item in selections:
-			if item[0].button_pressed: ids.append(item[1])
-		if ids.is_empty() or not daily.text.is_valid_int(): return service.fail("Select people and a whole-rupee daily amount.")
-		return service.bulk_kharchi(ids,start.text,end.text,int(daily.text))))
-	ledger_edit_form()
+	heading("Money book","Keep track of money given and money held.")
+	var types = HBoxContainer.new()
+	types.add_theme_constant_override("separation",6)
+	body.add_child(types)
+	for kind in [["kharchi","Kharchi"],["advance","Advance"],["jama","Jama"]]:
+		var pick = button(types,kind[1],func():
+			money_kind = kind[0]
+			show_page("Money"))
+		if money_kind == kind[0]:
+			pick.add_theme_stylebox_override("normal",box(Color("eaf3ff"),10,12,Color("a8cdff")))
+			pick.add_theme_color_override("font_color",BLUE)
+	var description = {"kharchi":"Money already given for food, water or daily expenses. This is deducted at payment.","advance":"Money lent to a person. Choose how much to recover from each payment.","jama":"Money that belongs to the person and is held by you. This is added at payment."}
+	var c = card("Add " + money_kind.capitalize(),description[money_kind])
+	var who = select(c,"Person",active_rows("persons"))
+	var inputs = grid(c,2)
+	var amount = amount_field(inputs,"Amount")
+	var date = date_input(inputs,"Date",today())
+	var installment: LineEdit
+	if money_kind == "advance": installment = amount_field(c,"Recover from each payment (optional)")
+	primary(c,"Save " + money_kind,func():
+		if not amount.text.is_valid_int() or (is_instance_valid(installment) and not installment.text.is_empty() and not installment.text.is_valid_int()):
+			notice("Enter an amount in whole rupees.",true)
+			return
+		var recovery = int(installment.text) if is_instance_valid(installment) else 0
+		commit_action(func(): return service.ledger(selected(who),money_kind,int(amount.text),date.value,recovery),money_kind.capitalize()+" saved."))
+	if money_kind == "kharchi": quiet(c,"Add daily kharchi for several people",bulk_money_form)
+	var recent = card("Recent money entries")
+	var entries = repo.data.ledger.duplicate()
+	entries.reverse()
+	for entry in entries.slice(0,8): money_summary(recent,entry)
+	if entries.is_empty(): recent.add_child(label("Your money entries will appear here.",14,MUTED))
 
-func ledger_edit_form():
-	var c = card("Correct an unallocated money entry", "Consumed entries and recovered loans are protected. Use an audited correction before settlement.")
-	var entries = []
-	for row in repo.data.ledger:
-		if row.settlement_id.is_empty() and row.recovered == 0: entries.append({"id":row.id,"name":row.person_id + " · " + row.kind + " · " + P.money(int(row.amount))})
-	var entry = select(c,"Entry",entries)
-	var amount = input(c,"Correct amount","0")
-	var date = input(c,"Correct effective date",today())
-	var installment = input(c,"Recovery installment","0")
-	var reason = input(c,"Correction reason")
-	button(c,"Save correction",func(): transact(func():
-		if not amount.text.is_valid_int() or not installment.text.is_valid_int(): return service.fail("Enter whole rupees.")
-		return service.edit_ledger(selected(entry),int(amount.text),date.text,int(installment.text),reason.text)))
+func money_summary(parent: Node, entry: Dictionary):
+	var title = repo.find("persons",entry.person_id).get("name",entry.person_id)
+	var subtitle = entry.kind.capitalize()+" · "+display_date(entry.date)
+	person_row(parent,title,subtitle,P.money(int(entry.amount)),func(): money_edit(entry.id))
+
+func money_edit(key: String):
+	var entry = repo.find("ledger",key)
+	var c = modal(entry.kind.capitalize()+" · "+repo.find("persons",entry.person_id).name)
+	if not entry.settlement_id.is_empty() or int(entry.recovered) > 0:
+		c.add_child(label("This entry has already been used in a payment. Its original record is kept.",14,MUTED))
+		c.add_child(label(P.money(int(entry.amount)),28))
+		quiet(c,"Close",close_modal)
+		return
+	var amount = amount_field(c,"Amount",str(int(entry.amount)))
+	var date = date_input(c,"Date",entry.date)
+	var installment = amount_field(c,"Recover per payment",str(int(entry.installment)))
+	installment.get_parent().visible = entry.kind == "advance"
+	var reason = input(c,"Reason for the correction")
+	primary(c,"Save changes",func():
+		if not amount.text.is_valid_int() or not installment.text.is_valid_int():
+			notice("Enter whole rupees.",true)
+			return
+		if commit_action(func(): return service.edit_ledger(key,int(amount.text),date.value,int(installment.text),reason.text),"Money entry updated."): close_modal())
+	quiet(c,"Cancel",close_modal)
+
+func bulk_money_form():
+	var c = modal("Daily kharchi","Choose the people and dates. We will work out the total for you.")
+	var options = []
+	for person in active_rows("persons"):
+		var item = CheckBox.new()
+		item.text = person.name
+		item.custom_minimum_size.y = 44
+		c.add_child(item)
+		options.append({"node":item,"id":person.id})
+	var dates = grid(c,2)
+	var start = date_input(dates,"From",today())
+	var end = date_input(dates,"Through",today())
+	var amount = amount_field(c,"Per person, per day")
+	var total = label("Choose people and enter a daily amount.",14,BLUE)
+	c.add_child(total)
+	var refresh = func(_unused = ""):
+		var people_count = 0
+		for item in options:
+			if item.node.button_pressed: people_count += 1
+		var days = maxi(0,P.day(end.value)-P.day(start.value)+1)
+		if amount.text.is_valid_int() and int(amount.text) >= 0 and int(amount.text) <= P.MAX_VALUE:
+			total.text = "%d people × %d days = %s" % [people_count,days,P.money(people_count*days*int(amount.text))]
+	for item in options: item.node.toggled.connect(refresh)
+	start.date_changed.connect(refresh)
+	end.date_changed.connect(refresh)
+	amount.text_changed.connect(refresh)
+	primary(c,"Save daily kharchi",func():
+		var ids = []
+		for item in options:
+			if item.node.button_pressed: ids.append(item.id)
+		if ids.is_empty() or not amount.text.is_valid_int():
+			notice("Choose at least one person and enter the daily amount.",true)
+			return
+		if commit_action(func(): return service.bulk_kharchi(ids,start.value,end.value,int(amount.text)),"Daily kharchi saved."): close_modal())
+	quiet(c,"Cancel",close_modal)
+
+func payees() -> Array:
+	var result = []
+	for person in active_rows("persons"):
+		if person.family_id.is_empty(): result.append(person)
+	for family in active_rows("families"): result.append(family)
+	return result
 
 func pay_page():
-	var c = card("Pay to any date", "Preview first. Recording freezes the slip and clears only its allocated items.")
-	var payees = []
-	for person in repo.data.persons:
-		if person.family_id.is_empty(): payees.append(person)
-	for family in repo.data.families:
-		if family.active: payees.append(family)
-	var who = select(c,"Person or family",payees)
-	var end = input(c,"Pay through",today())
-	var actual = input(c,"Cash handed out on",today())
-	var recovery = input(c,"Advance recovery · blank uses installment")
-	var cash = input(c,"Cash paid · blank pays full net")
-	var allocations = VBoxContainer.new()
-	c.add_child(allocations)
-	member_overrides = {}
-	var refresh_members = func(_index = 0):
-		for child in allocations.get_children():
-			allocations.remove_child(child)
-			child.queue_free()
-		member_overrides = {}
-		var group = repo.find("families",selected(who))
-		if not group.is_empty():
-			for member in group.members:
-				allocations.add_child(label(repo.find("persons",member).name + " · " + member,18))
-				member_overrides[member] = {"recovery":input(allocations,"Recovery · blank uses installment"),"cash":input(allocations,"Cash allocation · blank uses full net")}
-	who.item_selected.connect(refresh_members)
-	refresh_members.call()
-	button(c,"Preview payment",func():
-		if (not recovery.text.is_empty() and (not recovery.text.is_valid_int() or int(recovery.text) < 0)) or (not cash.text.is_empty() and (not cash.text.is_valid_int() or int(cash.text) < 0)):
-			status.text = "Enter whole rupees."
+	heading("Make a payment","Choose who to pay and the last day to include.")
+	if payees().is_empty():
+		var empty = empty_state(body,"Add someone first","Once a person is in your book, you can calculate their pay here.")
+		primary(empty,"+ Add a person",func(): person_form())
+		return
+	var c = card("Who are you paying?")
+	var all_payees = payees()
+	var search = input(c,"Find a person or family")
+	search.placeholder_text = "Type a name"
+	search.get_parent().visible = all_payees.size() > 6
+	var who = select(c,"Person or family",all_payees)
+	choose(who,chosen_person)
+	search.text_changed.connect(func(query):
+		who.clear()
+		for person in all_payees:
+			if query.is_empty() or person.name.to_lower().contains(query.to_lower()) or person.id.to_lower().contains(query.to_lower()):
+				who.add_item(person.name)
+				who.set_item_metadata(who.item_count-1,person.id))
+	var end = date_input(c,"Pay through",today())
+	var period = label("",13,MUTED)
+	c.add_child(period)
+	var update = func(_unused = 0):
+		var person = repo.find("persons",selected(who))
+		if person.is_empty():
+			period.text = "One payment for the whole family, with each person's details."
+		else:
+			var start: String = person.payroll_start_date if person.paid_up_to.is_empty() else P.date_from_day(P.day(person.paid_up_to)+1)
+			period.text = "Includes work from " + display_date(start) + ". Earlier recorded payments are already taken care of."
+	who.item_selected.connect(update)
+	update.call()
+	primary(c,"Calculate payment",func(): prepare_payment(selected(who),end.value))
+	quiet(c,"View past payments",func(): show_page("History"))
+
+func calculate_payment(key: String, end: String, overrides: Dictionary = {}) -> Dictionary:
+	if key.begins_with("FAM"):
+		return service.family_preview(key,end,overrides)
+	var options: Dictionary = overrides.get(key,{})
+	var slip = service.preview(key,end,int(options.get("recovery",-1)),int(options.get("cash",-1)))
+	if slip.has("error"): return slip
+	return {"slips":[slip],"cash":slip.totals.cash,"net":slip.totals.net,"family_id":""}
+
+func prepare_payment(key: String, end: String, overrides: Dictionary = {}):
+	if key.is_empty():
+		notice("Choose the person or family you want to pay.",true)
+		return
+	var ids = [key]
+	if key.begins_with("FAM"): ids = repo.find("families",key).get("members",[])
+	for row in repo.data.attendance:
+		if row.person_id in ids and row.settlement_id.is_empty() and row.start <= end and row.end > end:
+			split_form(row.id,end,func(): prepare_payment(key,end,overrides))
 			return
-		for member in member_overrides:
-			for field in ["cash","recovery"]:
-				var value_text = member_overrides[member][field].text
-				if not value_text.is_empty() and (not value_text.is_valid_int() or int(value_text) < 0):
-					status.text = "Family amounts must be non-negative whole rupees."
-					return
-		var key = selected(who)
-		preview_family = key if key.begins_with("FAM") else ""
-		var value = service.family_preview(key,end.text,read_member_overrides()) if not preview_family.is_empty() else service.preview(key,end.text,-1 if recovery.text.is_empty() else int(recovery.text),-1 if cash.text.is_empty() else int(cash.text))
-		if value.has("error"):
-			status.text = value.error
-			return
-		if not preview_family.is_empty() and (not cash.text.is_empty() or not recovery.text.is_empty()):
-			status.text = "Use the per-member fields below for family recovery and cash allocations."
-			return
-		preview_slips = value.slips if not preview_family.is_empty() else [value]
-		var snapshot = {"id":"PREVIEW","paid_date":actual.text,"slips":preview_slips,"cash":0,"cancelled":false}
-		for slip in preview_slips: snapshot.cash += int(slip.totals.cash)
-		receipt(snapshot,false)
-		button(body,"Confirm and record " + P.money(int(snapshot.cash)),func(): confirm("Record this payment? Negative net, if any, becomes an advance. Saved slips are frozen.",func():
-			# Recompute to reject stale previews.
-			var fresh = service.family_preview(key,end.text,read_member_overrides()) if not preview_family.is_empty() else service.preview(key,end.text,-1 if recovery.text.is_empty() else int(recovery.text),-1 if cash.text.is_empty() else int(cash.text))
-			if fresh.has("error"):
-				status.text = fresh.error
+	var result = calculate_payment(key,end,overrides)
+	if result.has("error"):
+		notice(result.error,true)
+		return
+	payment_state = {"key":key,"end":end,"result":result,"controls":{},"paid_date":today()}
+	payment_review()
+
+func money_line(parent: Node, title: String, amount: int, emphasis: bool = false) -> Label:
+	var row = HBoxContainer.new()
+	row.add_theme_constant_override("separation",12)
+	parent.add_child(row)
+	var caption = label(title,18 if emphasis else 14,INK if emphasis else MUTED)
+	caption.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(caption)
+	var value = label(P.money(amount),22 if emphasis else 16,INK)
+	value.autowrap_mode = TextServer.AUTOWRAP_OFF
+	value.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	row.add_child(value)
+	return value
+
+func combined_totals(slips: Array) -> Dictionary:
+	var totals = {"earnings":0,"jama":0,"kharchi":0,"recovery":0,"net":0,"cash":0,"new_jama":0,"shortfall":0}
+	for slip in slips:
+		for key in totals: totals[key] += int(slip.totals[key])
+	return totals
+
+func payment_review():
+	clear_body()
+	quiet(body,"‹ Change person or date",func(): show_page("Pay"))
+	var key: String = payment_state.key
+	var result: Dictionary = payment_state.result
+	var name: String = repo.find("families",key).get("name","") if key.begins_with("FAM") else repo.find("persons",key).name
+	heading("Check the payment",name+" · Through "+display_date(payment_state.end))
+	var c = card("Payment summary")
+	var totals = combined_totals(result.slips)
+	var labels = {}
+	labels.earnings = money_line(c,"Wages earned",totals.earnings)
+	labels.jama = money_line(c,"+ Jama held by you",totals.jama)
+	labels.kharchi = money_line(c,"− Kharchi already given",totals.kharchi)
+	labels.recovery = money_line(c,"− Advance to recover",totals.recovery)
+	c.add_child(HSeparator.new())
+	labels.net = money_line(c,"Amount payable",totals.net,true)
+	var giving = card("Money you are giving")
+	payment_state.controls = {}
+	var recovery_box = column(giving)
+	recovery_box.hide()
+	var entry_box = column(giving)
+	giving.move_child(entry_box,1)
+	for slip in result.slips:
+		var person_fields = column(entry_box)
+		if result.slips.size() > 1: person_fields.add_child(label(slip.name,17))
+		var cash = amount_field(person_fields,"Amount" if result.slips.size() == 1 else "Giving to "+slip.name,str(int(slip.totals.cash)))
+		var loan_fields = column(recovery_box)
+		var recovery = amount_field(loan_fields,"Advance deduction" if result.slips.size() == 1 else slip.name+" · Advance deduction",str(int(slip.totals.recovery)))
+		loan_fields.add_child(label("Loan remaining before payment: "+P.money(int(slip.outstanding)),12,MUTED))
+		payment_state.controls[slip.person_id] = {"cash":cash,"recovery":recovery}
+	var carry = label("",13,Color("2f7859"))
+	giving.add_child(carry)
+	var error_label = label("",13,Color("b44333"))
+	error_label.hide()
+	giving.add_child(error_label)
+	quiet(giving,"Change advance deduction or payment date",func(): recovery_box.visible = not recovery_box.visible)
+	var paid_date = date_input(recovery_box,"Date you are giving the money",today())
+	var use_full = quiet(recovery_box,"Use the full payable amount",func():
+		var overrides = {}
+		for member in payment_state.controls:
+			var field = payment_state.controls[member].recovery
+			if not field.text.is_valid_int():
+				notice("Enter whole rupees for the advance deduction.",true)
 				return
-			var slips = fresh.slips if not preview_family.is_empty() else [fresh]
-			if service.record_slips(slips,preview_family,actual.text,true):
-				show_page("Home")
-				status.text = "Payment recorded. Download a fresh backup."
-			else: status.text = service.error)))
-	var history = card("Payment history")
-	for payment in repo.data.settlements:
-		button(history,payment.id + " · " + P.money(int(payment.cash)) + (" · Cancelled" if payment.cancelled else ""),func(): receipt(payment))
+			overrides[member] = {"recovery":int(field.text)}
+		prepare_payment(key,payment_state.end,overrides))
+	use_full.add_theme_font_size_override("font_size",13)
+	fold(body,"See the wage calculation",func(details):
+		for slip in result.slips: slip_details(details,slip))
+	var record = primary(body,"Record payment · "+P.money(int(result.cash)),func():
+		var fresh = read_payment_controls()
+		if fresh.has("error"):
+			notice(fresh.error,true)
+			return
+		var summary = combined_totals(fresh.slips)
+		var message = "Give "+P.money(summary.cash)+" to "+name+"?\nWork included through "+display_date(payment_state.end)+"."
+		if summary.new_jama > 0: message += "\n"+P.money(summary.new_jama)+" stays as jama for the next payment."
+		if summary.shortfall > 0: message += "\nNo money is due for the negative amount. "+P.money(summary.shortfall)+" will carry as an advance."
+		confirm(message,func():
+			if service.record_slips(fresh.slips,fresh.family_id,paid_date.value,true):
+				receipt(repo.data.settlements.back())
+				notice("Payment recorded. A receipt is ready.")
+			else: notice(service.error,true)))
+	var refresh = func(_unused = ""):
+		var fresh = read_payment_controls()
+		if fresh.has("error"):
+			error_label.text = friendly_error(fresh.error)
+			error_label.show()
+			record.disabled = true
+			return
+		error_label.hide()
+		record.disabled = false
+		var updated = combined_totals(fresh.slips)
+		for field in labels: labels[field].text = P.money(int(updated[field]))
+		record.text = "Record payment · "+P.money(updated.cash)
+		carry.text = P.money(updated.new_jama)+" will stay as jama for the next payment." if updated.new_jama > 0 else "The full payable amount is being given."
+		if updated.shortfall > 0: carry.text = P.money(updated.shortfall)+" will carry as an advance. No negative cash payment."
+	for member in payment_state.controls:
+		payment_state.controls[member].cash.text_changed.connect(refresh)
+		payment_state.controls[member].recovery.text_changed.connect(refresh)
+	refresh.call()
+
+func read_payment_controls() -> Dictionary:
+	var overrides = {}
+	for key in payment_state.controls:
+		var row = payment_state.controls[key]
+		for field in ["cash","recovery"]:
+			if not row[field].text.is_valid_int() or int(row[field].text) < 0 or int(row[field].text) > 9000000000000000:
+				return {"error":"Enter a non-negative amount in whole rupees."}
+		overrides[key] = {"cash":int(row.cash.text),"recovery":int(row.recovery.text)}
+	return calculate_payment(payment_state.key,payment_state.end,overrides)
+
+func slip_details(parent: Node, slip: Dictionary):
+	var c = panel(parent,slip.name,display_date(slip.start)+" – "+display_date(slip.end))
+	if not slip.bm.is_empty():
+		money_line(c,"Boiler master salary",int(slip.bm.base))
+		money_line(c,"Extra BM shifts",int(slip.bm.extra))
+		c.add_child(label("Monthly salary "+P.money(int(slip.bm.salary))+" · "+str(int(slip.bm.days))+" days in this period",12,MUTED))
+	for row in slip.attendance:
+		var role: String = {"F":"Fireman","H":"Helper","BM":"Boiler master"}.get(row.role,row.role)
+		var description: String = row.get("mill_name",row.mill_id)+" · "+role+" · "+str(int(row.half_units)/2.0)+" shifts"
+		c.add_child(label(description,14))
+		c.add_child(label(display_date(row.start)+" – "+display_date(row.end),12,MUTED))
+		if row.role != "BM":
+			var wage = P.worker(int(row.rate),int(row.half_units),int(row.minutes))
+			money_line(c,"Attendance at "+P.money(int(row.rate)),wage.attendance)
+			if wage.hours > 0: money_line(c,"Extra hours",wage.hours)
+			if int(row.get("split_adjustment",0)) != 0: money_line(c,"Split rounding adjustment",int(row.split_adjustment))
+	money_line(c,"Wages",int(slip.totals.earnings))
+	money_line(c,"Jama",int(slip.totals.jama))
+	money_line(c,"Kharchi",int(slip.totals.kharchi))
+	money_line(c,"Advance recovered",int(slip.totals.recovery))
+	money_line(c,"Amount given",int(slip.totals.cash),true)
+	if slip.totals.new_jama > 0: money_line(c,"Jama kept for next payment",int(slip.totals.new_jama))
+	if slip.remaining_advance > 0: money_line(c,"Advance still remaining",int(slip.remaining_advance))
+
+func history_page():
+	heading("Payments","A clear record of every person and family paid.")
+	primary(body,"+ Make a payment",func(): open_pay())
+	if repo.data.settlements.is_empty():
+		empty_state(body,"No payments yet","Your first recorded payment and receipt will appear here.")
+		return
+	var c = card("Payment history")
+	var payments = repo.data.settlements.duplicate()
+	payments.reverse()
+	for payment in payments:
+		person_row(c,payment_name(payment),display_date(payment.paid_date)+(" · Cancelled" if payment.cancelled else ""),P.money(int(payment.cash)),func(): receipt(payment))
 
 func receipt(payment: Dictionary, clear: bool = true):
-	if clear:
-		for child in body.get_children():
-			body.remove_child(child)
-			child.queue_free()
-	var c = card("Payment " + payment.id, "Cash date: " + payment.paid_date + (" · CANCELLED" if payment.cancelled else ""))
-	var receipt_text = "PayTrack · " + payment.id + "\nCash date: " + payment.paid_date + "\n"
+	if clear: clear_body()
+	top_title.text = "Payment receipt"
+	heading("Payment cancelled" if payment.cancelled else "Payment recorded",payment_name(payment))
+	var c = card("Amount given")
+	c.add_child(label(P.money(int(payment.cash)),38,Color("25815a") if not payment.cancelled else MUTED))
+	c.add_child(label("Paid on "+display_date(payment.paid_date),14,MUTED))
+	if not payment.slips.is_empty(): c.add_child(label("Work through "+display_date(payment.slips[0].end),13,MUTED))
+	if not payment.cancelled: c.add_child(label("Remember to save a fresh backup after payments.",12,MUTED))
+	var actions = grid(c,2)
+	primary(actions,"Save / print receipt",func(): download(receipt_html(payment),"paytrack-receipt.html","text/html"))
+	button(actions,"Back to payments",func(): show_page("History"))
+	var totals = combined_totals(payment.slips)
+	if totals.new_jama > 0: c.add_child(label(P.money(totals.new_jama)+" stays as jama for the next payment.",14,BLUE))
+	for slip in payment.slips: slip_details(body,slip)
+	if not payment.cancelled and not repo.data.settlements.is_empty() and repo.data.settlements.back().id == payment.id:
+		fold(body,"Correct a payment mistake",func(options):
+			options.add_child(label("Cancel this latest payment to put its entries back. You can then record the corrected payment.",13,MUTED))
+			button(options,"Cancel this payment",func(): confirm("Cancel the payment to "+payment_name(payment)+"? Its attendance and money entries will be available again.",func():
+				if service.cancel_latest(payment.id,true):
+					show_page("History")
+					notice("Payment cancelled. You can now record it again.")
+				else: notice(service.error,true))))
+
+func receipt_html(payment: Dictionary) -> String:
+	var html = "<!doctype html><meta charset='utf-8'><title>PayTrack receipt</title><style>body{font:15px system-ui;color:#192436;max-width:760px;margin:48px auto;padding:0 24px}h1{font-size:24px}h2{font-size:18px;margin-top:32px}.amount{font-size:38px;margin:20px 0}table{width:100%;border-collapse:collapse}td{padding:10px 0;border-bottom:1px solid #e5e9ef}td:last-child{text-align:right}small{color:#758196}button{padding:12px 20px}@media print{button{display:none}}</style><h1>PayTrack</h1><p>"+payment_name(payment).xml_escape()+"</p><div class='amount'>"+P.money(int(payment.cash))+"</div><p>Paid on "+display_date(payment.paid_date)+"</p>"
 	for slip in payment.slips:
-		var lines = [slip.name + " · " + slip.person_id, slip.start + " → " + slip.end, "Payroll start: " + slip.payroll_start_date]
+		html += "<h2>"+slip.name.xml_escape()+" <small>"+slip.person_id+"</small></h2><p>"+display_date(slip.start)+" – "+display_date(slip.end)+"</p><table>"
 		for row in slip.attendance:
-			var parts = P.worker(int(row.rate),int(row.half_units),int(row.minutes))
-			lines.append("%s · %s · %s → %s · %s shifts · %s minutes · rate %s" % [row.get("mill_name",row.mill_id),row.role,row.start,row.end,str(int(row.half_units)/2.0),row.minutes,P.money(int(row.rate))])
-			if row.role != "BM":
-				lines.append("Attendance " + P.money(parts.attendance) + " + hours " + P.money(parts.hours))
-				if int(row.get("split_adjustment",0)) != 0: lines.append("Split rounding adjustment " + P.money(int(row.split_adjustment)) + " · preserves original range total")
+			var wage = P.worker(int(row.rate),int(row.half_units),int(row.minutes))
+			var work = str(row.get("mill_name",row.mill_id)).xml_escape()+" · "+row.role+" · "+str(int(row.half_units)/2.0)+" shifts"
+			if row.role == "BM":
+				html += "<tr><td>"+work+"</td><td>BM attendance</td></tr>"
+			else:
+				html += "<tr><td>"+work+" at "+P.money(int(row.rate))+"</td><td>"+P.money(wage.attendance)+"</td></tr>"
+				if int(row.minutes) > 0: html += "<tr><td>Extra hours · "+str(int(row.minutes)/60.0)+"</td><td>"+P.money(wage.hours)+"</td></tr>"
+				if int(row.get("split_adjustment",0)) != 0: html += "<tr><td>Split rounding adjustment</td><td>"+P.money(int(row.split_adjustment))+"</td></tr>"
 		if not slip.bm.is_empty():
-			lines.append("BM salary " + P.money(int(slip.bm.salary)) + " · " + str(slip.bm.days) + " days · base " + P.money(int(slip.bm.base)) + " + extra " + P.money(int(slip.bm.extra)))
-		for key in ["earnings","jama","kharchi","recovery","net","cash","new_jama","shortfall"]:
-			lines.append(key.replace("_"," ").capitalize() + "   " + P.money(int(slip.totals[key])))
-		lines.append("Remaining advance   " + P.money(int(slip.remaining_advance)))
-		for line in lines:
-			var row_label = label(line,16)
-			row_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-			c.add_child(row_label)
-		receipt_text += "\n" + "\n".join(lines) + "\n"
-	if payment.slips.size() > 1:
-		c.add_child(label("Family totals",22))
-		receipt_text += "\nFamily totals\n"
-		for field in ["earnings","jama","kharchi","recovery","net","new_jama","shortfall"]:
-			var sum_value = 0
-			for slip in payment.slips: sum_value += int(slip.totals[field])
-			var line = field.replace("_"," ").capitalize() + "   " + P.money(sum_value)
-			c.add_child(label(line,18))
-			receipt_text += line + "\n"
-	c.add_child(label("Combined cash   " + P.money(int(payment.cash)),26))
-	button(c,"Download printable receipt",func():
-		var escaped = receipt_text.xml_escape()
-		download("<!doctype html><meta charset='utf-8'><title>PayTrack receipt</title><style>body{font:16px system-ui;max-width:760px;margin:40px auto}pre{white-space:pre-wrap;line-height:1.6}</style><h1>PayTrack</h1><pre>" + escaped + "</pre><button onclick='print()'>Print receipt</button>","paytrack-receipt.html","text/html"))
-	if payment.id != "PREVIEW" and not payment.cancelled:
-		button(c,"Cancel latest payment",func(): confirm("Cancel this latest payment and restore its allocations? Later account changes block reversal.",func():
-			if service.cancel_latest(payment.id,true): show_page("Pay")
-			else: status.text = service.error))
+			html += "<tr><td>BM fixed salary for this period</td><td>"+P.money(int(slip.bm.base))+"</td></tr>"
+			html += "<tr><td>Extra BM shifts</td><td>"+P.money(int(slip.bm.extra))+"</td></tr>"
+		for field in [["earnings","Wages"],["jama","Jama added"],["kharchi","Kharchi deducted"],["recovery","Advance recovered"],["net","Payable"],["cash","Amount given"],["new_jama","Jama kept"],["shortfall","Carry-forward advance"]]: html += "<tr><td>"+field[1]+"</td><td>"+P.money(int(slip.totals[field[0]]))+"</td></tr>"
+		html += "<tr><td>Advance remaining</td><td>"+P.money(int(slip.remaining_advance))+"</td></tr></table>"
+	return html+"<p><small>Receipt "+payment.id+(" · CANCELLED" if payment.cancelled else "")+"</small></p><button onclick='print()'>Print receipt</button>"
 
 func families_page():
-	var c = card("Pay a family together", "Members need aligned dates and resolved attendance, jama, kharchi and advances before joining.")
-	var name = input(c,"Family name")
+	heading("Families","One payment, with a separate calculation for each person.")
+	var tabs = HBoxContainer.new()
+	body.add_child(tabs)
+	quiet(tabs,"People",func(): show_page("People"))
+	button(tabs,"Families",func(): show_page("Families"))
+	primary(body,"+ Create a family",func(): family_form())
+	var any = false
+	for family in active_rows("families"):
+		any = true
+		var names = []
+		for key in family.members: names.append(repo.find("persons",key).get("name",key))
+		var c = card(family.name,", ".join(names))
+		var actions = grid(c,2)
+		primary(actions,"Pay family",func(): open_pay(family.id))
+		button(actions,"Edit family",func(): family_form(family.id))
+	if not any: empty_state(body,"No families yet","Group people who receive one combined payment. You can keep everyone separate if you prefer.")
+
+func family_form(key: String = ""):
+	var family = repo.find("families",key)
+	var c = modal("Create a family" if family.is_empty() else "Edit family","Choose at least two people. Pay dates must match and old balances must be settled before changing a family.")
+	var name = input(c,"Family name",family.get("name",""))
 	var members = []
-	for who in repo.data.persons:
-		if who.family_id.is_empty():
-			var check = CheckBox.new()
-			check.text = who.name + " · " + who.id
-			c.add_child(check)
-			members.append([check,who.id])
-	button(c,"Create family",func(): transact(func():
+	for person in active_rows("persons"):
+		if not person.family_id.is_empty() and person.family_id != key: continue
+		var item = CheckBox.new()
+		item.text = person.name
+		item.custom_minimum_size.y = 46
+		item.button_pressed = person.id in family.get("members",[])
+		c.add_child(item)
+		members.append({"node":item,"id":person.id})
+	primary(c,"Create family" if family.is_empty() else "Save family",func():
 		var ids = []
-		for member in members:
-			if member[0].button_pressed: ids.append(member[1])
-		return service.family(name.text,ids)))
-	for family in repo.data.families:
-		var group = card(family.name, " · ".join(family.members))
-		group.add_child(label("Active" if family.active else "Dissolved"))
-		if family.active:
-			var edit_name = input(group,"Family name",family.name)
-			var members_input = input(group,"Member IDs · comma separated",",".join(family.members))
-			button(group,"Update membership",func(): transact(func():
-				var ids = []
-				for item in members_input.text.split(",",false): ids.append(item.strip_edges())
-				return service.family_change(family.id,edit_name.text,ids)))
-			button(group,"Dissolve family",func(): confirm("Dissolve this family once all balances are resolved?",func(): transact(func(): return service.family_change(family.id,family.name,[]))))
+		for item in members:
+			if item.node.button_pressed: ids.append(item.id)
+		if commit_action(func(): return service.family(name.text,ids) if key.is_empty() else service.family_change(key,name.text,ids),"Family saved."): close_modal())
+	if not key.is_empty(): quiet(c,"Dissolve this family",func():
+		var family_name: String = family.name
+		confirm("Stop paying "+family_name+" as a group? Each person's records will be kept.",func(): commit_action(func(): return service.family_change(key,family_name,[]),"Family dissolved.")))
+	quiet(c,"Cancel",close_modal)
 
 func settings_page():
-	var c = card("This device, your records", "Local testing data — not synced between devices. Browser clearing or private browsing can erase records. A backup moves data between devices.")
-	c.add_child(label("Persistent storage reported: " + str(OS.is_userfs_persistent()) + " (browser policies can still clear it)",14))
-	backup_reminder()
-	button(c,"Download JSON backup",func():
-		repo.data.settings.last_backup_at = Time.get_datetime_string_from_system(true)
-		repo.save()
-		download(repo.backup(),"paytrack-backup.json","application/json")
-		status.text = "Backup download requested. Keep the downloaded file safely.")
-	button(c,"Restore JSON backup",import_backup)
-	for collection in ["persons","attendance","ledger","settlements"]:
-		button(c,"Export " + collection + " CSV",func(): export_csv(collection))
-	var m = card("Mills and rates", "Changes are effective-dated. Existing attendance keeps its saved rate.")
-	for mill in repo.data.mills:
-		m.add_child(label(mill.name + " · " + mill.id + (" · Inactive" if not mill.active else ""),18))
-		for role in ["F","H"]:
-			var value = service.effective("rates","mill_id",mill.id,today(),role)
-			m.add_child(label(role + "  " + P.money(int(value.get("amount",0))),14))
-		button(m,"Deactivate " + mill.name if mill.active else "Reactivate " + mill.name,func(): transact(func():
-			mill.active = not mill.active
-			return true))
-	var new_name = input(m,"New mill name")
-	button(m,"Add mill",func(): transact(func(): return service.mill(new_name.text)))
-	var mill = select(m,"Mill to update",repo.data.mills)
-	var rename = input(m,"Rename selected mill")
-	button(m,"Rename mill",func(): transact(func():
-		var selected_mill = repo.find("mills",selected(mill))
-		if selected_mill.is_empty() or rename.text.strip_edges().is_empty(): return service.fail("Select a mill and enter its name.")
-		for other in repo.data.mills:
-			if other.id != selected_mill.id and other.name.to_lower() == rename.text.strip_edges().to_lower(): return service.fail("Mill name already exists.")
-		service.audit("mill renamed",{"id":selected_mill.id,"old":selected_mill.name,"new":rename.text.strip_edges()})
-		selected_mill.name = rename.text.strip_edges()
-		return true))
-	var role = choice(m,"Role",["F","H"])
-	var rate = input(m,"Whole rupees per attendance","0")
-	var effective = input(m,"Effective from",today())
-	var reason = input(m,"Reason / note")
-	button(m,"Save new rate",func(): transact(func():
-		if not rate.text.is_valid_int(): return service.fail("Enter whole rupees.")
-		return service.rate(selected(mill),role.get_item_text(role.selected),int(rate.text),effective.text,reason.text)))
-	button(m,"Preview updating unpaid rows",func():
-		if not rate.text.is_valid_int() or int(rate.text) < 0 or int(rate.text) > P.MAX_VALUE or not P.valid_date(effective.text):
-			status.text = "Enter a valid rate and effective date."
+	heading("Settings","Change rates, manage salaries and keep a copy of your records.")
+	var cards = grid(body,2,800)
+	var mills = panel(cards,"Mills & attendance rates","Fireman and helper rates, saved with the date they start.")
+	for mill in active_rows("mills"):
+		var f = service.effective("rates","mill_id",mill.id,today(),"F")
+		var h = service.effective("rates","mill_id",mill.id,today(),"H")
+		person_row(mills,mill.name,"Fireman "+P.money(int(f.get("amount",0)))+" · Helper "+P.money(int(h.get("amount",0))),"Edit",func(): mill_form(mill.id))
+	button(mills,"+ Add a mill",func(): mill_form())
+	var masters = panel(cards,"Boiler master salaries","Fixed monthly salary, even when no shifts were entered.")
+	var master_count = 0
+	for person in active_rows("persons"):
+		var salary = service.effective("salaries","person_id",person.id,today())
+		if int(salary.get("amount",0)) <= 0: continue
+		person_row(masters,person.name,"Monthly salary",P.money(int(salary.amount)),func(): salary_form(person.id))
+		master_count += 1
+	if master_count == 0: masters.add_child(label("No boiler master salary set yet.",14,MUTED))
+	button(masters,"Set or change a salary",func(): salary_form())
+	var backup = card("Keep a copy of your records","Entries stay in this browser on this device. A backup lets you restore them or move them to another device.")
+	var last: String = repo.data.settings.get("last_backup_at","")
+	backup.add_child(label("Last backup: "+display_date(last.left(10)) if not last.is_empty() else "No backup saved yet",13,MUTED))
+	var actions = grid(backup,2)
+	primary(actions,"Save a backup",backup_now)
+	button(actions,"Restore a backup",import_backup)
+	if not OS.is_userfs_persistent(): backup.add_child(label("This browser may not keep your records after it closes. Please save a backup.",13,Color("b44333")))
+	fold(body,"Export for Excel",func(exports):
+		for item in [["persons","People"],["attendance","Attendance"],["ledger","Money entries"],["settlements","Payments"]]: button(exports,"Download "+item[1],func(): export_csv(item[0])))
+	fold(body,"Rate and salary history",func(history):
+		for collection in ["rates","salaries"]:
+			var rows = repo.data[collection].duplicate()
+			rows.reverse()
+			for row in rows:
+				var entity = repo.find("mills",row.mill_id).get("name",row.mill_id) if collection == "rates" else repo.find("persons",row.person_id).get("name",row.person_id)
+				history.add_child(label(entity+" · "+row.get("role","Monthly salary")+" · "+P.money(int(row.amount))+" · From "+display_date(row.effective_from),13,MUTED)))
+
+func mill_form(key: String = ""):
+	var mill = repo.find("mills",key)
+	var c = modal("Add a mill" if mill.is_empty() else "Mill & rates","Old payments keep their original rates.")
+	var name = input(c,"Mill name",mill.get("name",""))
+	var rates = grid(c,2)
+	var f = service.effective("rates","mill_id",key,today(),"F")
+	var h = service.effective("rates","mill_id",key,today(),"H")
+	var fireman = amount_field(rates,"Fireman · per attendance",str(int(f.amount)) if not f.is_empty() else "")
+	var helper = amount_field(rates,"Helper · per attendance",str(int(h.amount)) if not h.is_empty() else "")
+	var date = date_input(c,"Rates start from",today() if not mill.is_empty() else today().left(8)+"01")
+	var note = input(c,"Note (optional)")
+	primary(c,"Save mill & rates",func():
+		if not fireman.text.is_valid_int() or not helper.text.is_valid_int():
+			notice("Enter whole-rupee rates for both kinds of work.",true)
 			return
-		var value = service.reprice_preview(selected(mill),role.get_item_text(role.selected),effective.text,int(rate.text))
-		if value.has("error"):
-			status.text = value.error
-			return
-		confirm("Rows: " + str(value.rows) + "\nOld: " + P.money(value.old) + " → New: " + P.money(value.new) + "\nPaid snapshots stay frozen.",func(): transact(func(): return service.reprice(value,reason.text))))
-	var bm = card("Boiler master salary", "Salary effective on the slip's end date applies. Zero disables BM eligibility. Paid slips stay frozen.")
-	for person in repo.data.persons:
-		var current_salary = service.effective("salaries","person_id",person.id,today())
-		if not current_salary.is_empty(): bm.add_child(label(person.name + " · " + P.money(int(current_salary.amount)),15))
-	var who = select(bm,"Person",repo.data.persons)
-	var salary = input(bm,"Monthly salary · whole rupees","0")
-	var from = input(bm,"Effective from",today())
-	var note = input(bm,"Reason / note")
-	button(bm,"Preview salary change",func():
-		if not salary.text.is_valid_int():
-			status.text = "Enter whole rupees."
+		if commit_action(func():
+			var mill_id = key
+			if mill_id.is_empty():
+				if not service.mill(name.text): return false
+				mill_id = repo.data.mills.back().id
+			else:
+				var row = repo.find("mills",mill_id)
+				var clean = name.text.strip_edges()
+				if clean.is_empty(): return service.fail("Enter a mill name.")
+				for other in repo.data.mills:
+					if other.id != mill_id and other.name.to_lower() == clean.to_lower(): return service.fail("That mill name is already in your list.")
+				if row.name != clean:
+					service.audit("mill renamed",{"id":key,"old":row.name,"new":clean})
+					row.name = clean
+			return service.rate(mill_id,"F",int(fireman.text),date.value,note.text) and service.rate(mill_id,"H",int(helper.text),date.value,note.text),"Mill and rates saved."): close_modal())
+	if not key.is_empty():
+		quiet(c,"Update rates on unpaid attendance",func(): reprice_form(key))
+		quiet(c,"Stop using this mill",func(): confirm("Hide this mill from new attendance? All old records will stay.",func(): commit_action(func():
+			repo.find("mills",key).active = false
+			return true,"Mill marked inactive.")))
+	quiet(c,"Cancel",close_modal)
+
+func salary_form(key: String = ""):
+	var c = modal("Boiler master salary","Choose the date this salary starts. You will see the change before saving.")
+	var who = select(c,"Person",active_rows("persons"))
+	choose(who,key)
+	var salary = service.effective("salaries","person_id",selected(who),today())
+	var amount = amount_field(c,"Monthly salary",str(int(salary.get("amount",0))))
+	who.item_selected.connect(func(_index): amount.text = str(int(service.effective("salaries","person_id",selected(who),today()).get("amount",0))))
+	var date = date_input(c,"Starts from",today())
+	var reason = input(c,"Note (optional)")
+	c.add_child(label("Set the salary to 0 to stop BM eligibility from this date.",12,MUTED))
+	primary(c,"Review salary change",func():
+		if not amount.text.is_valid_int():
+			notice("Enter the monthly salary in whole rupees.",true)
 			return
 		var person_id = selected(who)
-		var value = service.salary_comparison(person_id,int(salary.text),from.text,today())
-		if value.has("error"):
-			status.text = value.error
+		var amount_value = int(amount.text)
+		var effective_date: String = date.value
+		var note: String = reason.text
+		var comparison = service.salary_comparison(person_id,amount_value,effective_date,today())
+		if comparison.has("error"):
+			notice(comparison.error,true)
 			return
-		confirm(value.note + "\nOld earnings: " + P.money(int(value.old)) + " → New: " + P.money(int(value.new)),func(): transact(func(): return service.salary(person_id,int(salary.text),from.text,note.text))))
-	var correction = card("Correct an unpaid attendance rate")
-	var available = []
-	for row in repo.data.attendance:
-		if row.settlement_id.is_empty() and row.role != "BM": available.append({"id":row.id,"name":row.person_id + " · " + row.role + " · " + P.money(int(row.rate))})
-	var selected_row = select(correction,"Attendance row",available)
-	var corrected = input(correction,"Correct rate","0")
-	var correction_reason = input(correction,"Required edit reason")
-	button(correction,"Save correction",func(): transact(func():
-		if not corrected.text.is_valid_int(): return service.fail("Enter whole rupees.")
-		return service.correct_rate(selected(selected_row),int(corrected.text),correction_reason.text)))
-	var history = card("Rate and salary history")
-	for collection in ["rates","salaries"]:
-		for row in repo.data[collection]:
-			history.add_child(label(row.get("mill_id",row.get("person_id","")) + " · " + row.get("role","BM") + " · " + row.effective_from + " · " + P.money(int(row.amount)) + " · " + row.reason,14))
+		confirm(repo.find("persons",person_id).name+" · New monthly salary "+P.money(amount_value)+"\nFrom "+display_date(effective_date)+"\nUnpaid wages through today: "+P.money(int(comparison.old))+" → "+P.money(int(comparison.new))+"\nOld payments are kept as they were.",func(): commit_action(func(): return service.salary(person_id,amount_value,effective_date,note),"Salary updated.")))
+	quiet(c,"Cancel",close_modal)
 
-func backup_reminder():
-	var last = repo.data.settings.get("last_backup_at","")
-	text("Last backup: " + ("Never — download one after entering records." if last.is_empty() else last),14)
-	if last.is_empty() or P.day(today()) - P.day(last.left(10)) >= 7:
-		text("Backup reminder: keep a fresh JSON copy at least every 7 days and after payments.",14)
+func reprice_form(key: String):
+	var c = modal("Change unpaid attendance rates","Only unpaid entries will be considered. Recorded payments will stay as they were.")
+	var role = choice(c,"Work",["Fireman","Helper"])
+	var amount = amount_field(c,"New rate per attendance")
+	var date = date_input(c,"Apply from",today())
+	var reason = input(c,"Reason for the change")
+	primary(c,"See affected entries",func():
+		if not amount.text.is_valid_int() or int(amount.text) < 0 or int(amount.text) > P.MAX_VALUE or reason.text.strip_edges().is_empty():
+			notice("Enter a valid whole-rupee rate and a reason.",true)
+			return
+		var preview = service.reprice_preview(key,["F","H"][role.selected],date.value,int(amount.text))
+		if preview.has("error"):
+			notice(preview.error,true)
+			return
+		var note: String = reason.text
+		confirm(str(preview.rows.size())+" unpaid entries will change.\nOld wages "+P.money(int(preview.old))+"\nNew wages "+P.money(int(preview.new)),func(): commit_action(func(): return service.reprice(preview,note),"Unpaid rates updated.")))
+	quiet(c,"Cancel",close_modal)
 
-func download(content: String, filename: String, mime: String):
-	if OS.has_feature("web"):
-		JavaScriptBridge.download_buffer(content.to_utf8_buffer(),filename,mime)
-	else:
-		var dialog = FileDialog.new()
-		dialog.file_mode = FileDialog.FILE_MODE_SAVE_FILE
-		dialog.access = FileDialog.ACCESS_FILESYSTEM
-		dialog.current_file = filename
-		add_child(dialog)
-		dialog.file_selected.connect(func(path):
-			var file = FileAccess.open(path,FileAccess.WRITE)
-			if file: file.store_string(content)
-			dialog.queue_free())
-		dialog.popup_centered_ratio(0.7)
+func rate_form(key: String):
+	var row = repo.find("attendance",key)
+	var c = modal("Correct this attendance rate",repo.find("persons",row.person_id).name+" · "+repo.find("mills",row.mill_id).name)
+	var amount = amount_field(c,"Rate per attendance",str(int(row.rate)))
+	var reason = input(c,"Reason for the correction")
+	primary(c,"Save corrected rate",func():
+		if not amount.text.is_valid_int():
+			notice("Enter whole rupees.",true)
+			return
+		if commit_action(func(): return service.correct_rate(key,int(amount.text),reason.text),"Attendance rate corrected."): close_modal())
+	quiet(c,"Cancel",close_modal)
 
-func import_backup():
-	if OS.has_feature("web"):
-		import_callback = JavaScriptBridge.create_callback(func(args): preview_restore(str(args[0])))
-		var window = JavaScriptBridge.get_interface("window")
-		window.paytrackImport = import_callback
-		JavaScriptBridge.eval("var pick=document.createElement('input');pick.type='file';pick.accept='.json,application/json';pick.onchange=async()=>{if(pick.files[0])window.paytrackImport(await pick.files[0].text())};pick.click();",true)
-	else:
-		var dialog = FileDialog.new()
-		dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
-		dialog.access = FileDialog.ACCESS_FILESYSTEM
-		dialog.filters = PackedStringArray(["*.json ; JSON backup"])
-		add_child(dialog)
-		dialog.file_selected.connect(func(path):
-			preview_restore(FileAccess.get_file_as_string(path))
-			dialog.queue_free())
-		dialog.popup_centered_ratio(0.7)
+func more_page():
+	heading("More","The other things you may need.")
+	var c = card("")
+	for item in [["Money book","Money"],["Payment history","History"],["Families","Families"],["Mills, salaries & backups","Settings"]]: button(c,item[0],func(): show_page(item[1]))
+	var backup = card("Your records stay on this device","Save a backup regularly, especially after payments.")
+	primary(backup,"Save a backup",backup_now)
 
 func preview_restore(content: String):
 	var result = repo.inspect_backup(content)
 	if result.has("error"):
-		status.text = result.error
+		notice("This backup could not be read. Your current records have not been changed.",true)
 		return
 	pending_backup = content
-	confirm("Replace local records? Backup contains %d people and %d payments. A local safety copy is retained." % [result.people,result.payments],func():
+	confirm("This backup has %d people and %d payments.\nReplace the records on this device with this backup? A safety copy of your current records will be kept." % [result.people,result.payments],func():
 		if repo.restore(pending_backup):
 			show_page("Home")
-			status.text = "Backup restored and validated."
-		else: status.text = repo.error)
+			notice("Your backup has been restored.")
+		else: notice("The backup could not be restored. Your previous records have been kept.",true))
 
-func export_csv(collection: String):
-	var rows: Array = repo.data[collection]
-	if rows.is_empty():
-		status.text = "No records to export."
-		return
-	var keys = rows[0].keys()
-	keys.erase("before")
-	var output = ",".join(keys) + "\n"
-	for row in rows:
-		var values = []
-		for key in keys:
-			var value = str(row.get(key,""))
-			if value.begins_with("=") or value.begins_with("+") or value.begins_with("-") or value.begins_with("@"): value = "'" + value
-			values.append('"' + value.replace('"','""') + '"')
-		output += ",".join(values) + "\n"
-	download(output,"paytrack-" + collection + ".csv","text/csv")
-
-func read_member_overrides() -> Dictionary:
-	var result = {}
-	for key in member_overrides:
-		var row = member_overrides[key]
-		result[key] = {"recovery": -1 if row.recovery.text.is_empty() else int(row.recovery.text), "cash": -1 if row.cash.text.is_empty() else int(row.cash.text)}
-	return result
+func quick_action(parent: Node, title: String, description: String, page: String, symbol: String):
+	var tile = button(parent,"",func(): show_page(page))
+	action_tiles.append(tile)
+	tile.custom_minimum_size.y = 94 if narrow() else 116
+	tile.add_theme_stylebox_override("normal",box(Color("edf5ff") if page == "Pay" else Color.WHITE,14,0,Color("dbe8fa") if page == "Pay" else Color("e6ebf2")))
+	var margin = MarginContainer.new()
+	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	for edge in ["left","right","top","bottom"]: margin.add_theme_constant_override("margin_"+edge,16)
+	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tile.add_child(margin)
+	var row = HBoxContainer.new()
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_theme_constant_override("separation",14)
+	margin.add_child(row)
+	var image = TextureRect.new()
+	image.texture = icon(symbol)
+	image.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	image.custom_minimum_size = Vector2(27,27)
+	image.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	image.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(image)
+	var words = column(row)
+	words.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	words.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var action = label({"Attendance":"Add attendance","Pay":"Make a payment","Money":"Record money"}[page],16,BLUE if page == "Pay" else INK)
+	action.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	words.add_child(action)
+	var help = label(description,12,MUTED)
+	help.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	words.add_child(help)

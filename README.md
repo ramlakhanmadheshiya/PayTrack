@@ -4,7 +4,7 @@ Local-first labour payroll / hisab-kitab, built in **Godot 4.7.2 stable** (`ed1d
 
 Live fictional demo: https://theramlakhan.com/paytrack/
 
-Verified locally: 94/94 domain assertions; 58/58 worker rows from the original sheet reconcile after required rounding. Browser persistence, backup replacement and a fictional payment were exercised. Full native Chrome/Firefox/Android testing and Hindi remain.
+Verified locally: 98/98 domain assertions plus 51/51 UI workflow checks; 58/58 worker rows from the original sheet reconcile after required rounding. Browser persistence, backup replacement and a fictional payment were exercised. Full native Chrome/Firefox/Android testing and Hindi remain.
 
 ## Run
 
@@ -13,6 +13,7 @@ Open `project.godot` in Godot 4.7.2, press F6/F5, or:
 ```sh
 godot --path .
 godot --headless --path . --script tests/run_tests.gd
+godot --headless --path . --script tests/run_ui_tests.gd
 ```
 
 ## Web
@@ -20,6 +21,7 @@ godot --headless --path . --script tests/run_tests.gd
 ```sh
 python3 tools/fetch_web_templates.py
 godot --headless --path . --export-release Web build/web/index.html
+python3 tools/prepare_web.py
 python3 tools/verify_export.py
 python3 tools/serve.py
 ```
@@ -35,3 +37,5 @@ See PROGRESS.md for verified results and unfinished acceptance criteria. Do not 
 Future Android export will reuse this project, but no Android workflow or signing setup is included now.
 
 Noto Sans is bundled under the SIL Open Font License; see assets/NotoSans-LICENSE.txt.
+
+The contractor interface uses focused daily actions and calendar dates; see docs/UI_REDESIGN.md for redesign and verification details.

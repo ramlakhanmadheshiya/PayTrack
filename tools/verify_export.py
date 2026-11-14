@@ -23,7 +23,7 @@ with path.open('rb') as file:
 allowed = ('res://scripts/','res://assets/','res://scenes/','res://.godot/','res://project.binary')
 for name in names:
     if not name.startswith(allowed): raise SystemExit('Unexpected packaged file: '+name)
-    if any(word in name.lower() for word in ['tests/','reference','backup','plan.md','docs/']):
+    if any(word in name.lower() for word in ['tests/','reference','plan.md','docs/','.json','.csv']):
         raise SystemExit('Private/reference content packaged: '+name)
 for required in ['res://scripts/domain/payroll.gdc','res://scripts/services/payroll_service.gdc','res://scripts/storage/repository.gdc','res://scripts/ui/app.gdc']:
     if required not in names: raise SystemExit('Missing runtime dependency: '+required)

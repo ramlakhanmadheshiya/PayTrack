@@ -7,6 +7,7 @@ DEST = 'public/paytrack'
 WORK = ROOT / '.tools' / 'portfolio'
 def run(*args, cwd=ROOT):
     return subprocess.check_output(args,cwd=cwd,text=True).strip()
+subprocess.check_call([sys.executable,str(ROOT/'tools/prepare_web.py')],cwd=ROOT)
 source = ROOT / 'build' / 'web'
 required = ['index.html','index.js','index.pck','index.wasm']
 if not all((source / name).is_file() for name in required):
@@ -19,11 +20,17 @@ run('git','pull','--ff-only',cwd=WORK)
 if not (WORK / 'public' / 'ghtrack').is_dir() or not (WORK / '.github/workflows/deploy.yml').is_file():
     sys.exit('Portfolio layout differs from inspected gh-track pipeline. Stop for review.')
 target = WORK / DEST
-if target.exists(): shutil.rmtree(target)
+previous=[]
+if target.exists():
+    for path in sorted(target.glob("paytrack-*.pck"),key=lambda item:item.stat().st_mtime,reverse=True)[:2]:
+        previous.append((path.name,path.read_bytes()))
+    shutil.rmtree(target)
 target.mkdir(parents=True)
 for path in source.iterdir():
     if path.is_file() and path.suffix in ['.html','.js','.wasm','.pck','.png','.svg']:
         shutil.copy2(path,target / path.name)
+for name,data in previous:
+    if not (target/name).exists(): (target/name).write_bytes(data)
 run('git','add','--',DEST,cwd=WORK)
 changed = run('git','diff','--cached','--name-only',cwd=WORK).splitlines()
 if not changed: sys.exit('No changed PayTrack runtime files.')

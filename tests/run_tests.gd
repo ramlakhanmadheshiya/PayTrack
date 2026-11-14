@@ -188,5 +188,12 @@ func _init():
 	check(mp.cash == 200 and mp.net == 200,"family combined cash respects aggregate net")
 	check(mp.slips[0].totals.new_jama == 100 and mp.slips[1].totals.shortfall == 100,"family balances remain individually allocated")
 	check(mix.record_slips(mp.slips,mid,"2026-11-08",true),"mixed family records once")
+
+	check(not cs.bulk_kharchi([],"2026-11-01","2026-11-02",100),"empty bulk posting rejected")
+	var ledger_count = c.data.ledger.size()
+	check(not cs.bulk_kharchi([cp],"2026-11-01","2026-11-02",P.MAX_VALUE+1) and c.data.ledger.size() == ledger_count,"oversized bulk amount rejected atomically")
+	var second_split = sr.data.attendance[1].id
+	check(sp.edit_attendance(second_split,"2026-11-02","2026-11-02",1,0,"confirm actual shift"),"unpaid split row correction allowed")
+	check(sr.data.attendance[1].split_adjustment == -1 and sp.preview(spi,"2026-11-02").totals.earnings == 142,"editing split row preserves the rounding adjustment")
 	print("RESULT: ",count - failures,"/",count," assertions passed")
 	quit(1 if failures else 0)

@@ -18,6 +18,7 @@ From PayTrack:
 python3 tools/fetch_web_templates.py
 godot --headless --path . --script tests/run_tests.gd
 godot --headless --path . --export-release Web build/web/index.html
+python3 tools/prepare_web.py
 python3 tools/verify_export.py
 python3 tools/deploy.py
 ```
@@ -34,3 +35,7 @@ Source CI in PayTrack runs pinned Godot tests, Web export and PCK allowlist chec
 - Git comparison against the inspected portfolio baseline contains only public/paytrack files.
 
 The public demo starts empty, with optional fictional samples. A private source repository does not restrict access to the runtime. Data stays in each browser profile/origin; JSON backups provide portability. No real source-workbook workforce is included.
+
+## UI update caching
+
+`prepare_web.py` gives the main PCK a content-based filename and sets Godot mainPack to that relative file. Deployment retains two previous versioned packs for clients with cached HTML. The engine runtime stays pinned; browser local storage is unchanged.

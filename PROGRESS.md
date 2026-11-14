@@ -1,5 +1,13 @@
 # PayTrack progress — 14 November 2026
 
+## UI redesign update
+- Replaced the crowded form-based interface with focused contractor flows, desktop sidebar, phone bottom navigation and calendar dates.
+- Removed technical fields and ID entry from everyday tasks; corrections/settings open only when needed.
+- **98/98 payroll assertions + 51/51 UI workflow checks passed.**
+- Actual desktop/phone browser workflow verified: ₹7,058 wages − ₹500 kharchi = ₹6,558 payable; ₹6,000 cash leaves ₹558 jama. Reload and downloaded-backup contents verified.
+- See docs/UI_REDESIGN.md for the complete matrix and remaining physical-device coverage.
+- The UI update keeps schema 1 and existing browser records. Public runtime packs are versioned to avoid stale UI caches.
+
 ## Current result
 Functional English Godot Web demo published and verified at **https://theramlakhan.com/paytrack/**.
 Private source: **https://github.com/ramlakhanmadheshiya/PayTrack** (visibility checked PRIVATE).

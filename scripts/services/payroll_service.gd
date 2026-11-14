@@ -155,8 +155,8 @@ func ledger(person_id: String, kind: String, amount: int, date: String, installm
 	return true
 
 func bulk_kharchi(people: Array, start: String, end: String, daily: int) -> bool:
-	if not P.valid_date(start) or not P.valid_date(end) or start > end or P.day(end) - P.day(start) > 366 or daily <= 0:
-		return fail("Choose a valid range up to one year and daily amount.")
+	if not P.valid_date(start) or not P.valid_date(end) or start > end or P.day(end) - P.day(start) > 366 or daily <= 0 or daily > P.MAX_VALUE or people.is_empty():
+		return fail("Choose people, a valid range up to one year and a daily amount within the allowed limit.")
 	for key in people:
 		if repo.find("persons", key).is_empty():
 			return fail("Unknown person.")
@@ -436,6 +436,8 @@ func edit_attendance(entry_id: String, start: String, end: String, halves: int, 
 	replacement.id = old.id
 	replacement.created_at = old.created_at
 	replacement.rate = old.rate
+	replacement.split_adjustment = int(old.get("split_adjustment",0))
+	if old.has("split_source"): replacement.split_source = old.split_source
 	audit("attendance edited",{"old":old,"new":replacement.duplicate(true),"reason":reason})
 	return true
 
