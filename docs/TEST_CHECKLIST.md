@@ -25,3 +25,12 @@
 - Actual Android device browser test; no Android device connected to this task.
 - Full graphical 100-person workflow is not manually exercised; domain/backup stress is automated.
 - Hindi translation is deferred until English workflow review. `tr()` boundary exists for shared UI labels/buttons.
+
+## Final verification additions
+- 390×844 browser viewport: readable controls, wrapping, confirmation and salary preview checked.
+- Fictional BM payment preview → confirmation → record → reload: retained payment visible.
+- Rupee glyph verified after adding licensed Noto Sans.
+- Live app https://theramlakhan.com/paytrack/ visually loaded; no new error/warning logs for its runtime URL.
+- Final source CI passed: https://github.com/ramlakhanmadheshiya/PayTrack/actions/runs/43585758283.
+- Final Pages CI passed: https://github.com/ramlakhanmadheshiya/ramlakhanmadheshiya.github.io/actions/runs/43585762615.
+- Existing five-page portfolio content checks matched after decoding per-request email protection. Portfolio Git diff contains only public/paytrack files.

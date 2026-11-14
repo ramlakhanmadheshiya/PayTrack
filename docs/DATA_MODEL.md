@@ -4,7 +4,7 @@ Single versioned JSON document: persons, mills, rates, salaries, attendance, led
 settlements, families, audit; settings and monotonic next_id.
 IDs use permanent prefixed sequence keys (P-, M-, R-, S-, A-, L-, PAY-, FAM-); never recycled.
 Amounts are whole INR integers. JSON numbers are coerced to int before calculations.
-Attendance half_units and minutes avoid floating-point wages. Rate snapshots live on each row.
+Attendance half_units and minutes avoid floating-point wages. Rate snapshots live on each row. Optional signed split_adjustment preserves original rounded wages across manual splits and is shown separately on receipts.
 Ledger uses immutable issue amounts plus recorded recovery/settlement allocations.
 Payment slips freeze person name, periods, attendance/rates, BM calculation and totals.
 Family payment has one cash value and multiple member slips.

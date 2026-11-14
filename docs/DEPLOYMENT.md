@@ -1,12 +1,36 @@
-# Deployment discovery
+# Deployment — existing portfolio only
 
-Read locally, without modification:
-- ../bill-studio/tools/deploy.sh: clones ramlakhanmadheshiya/ramlakhanmadheshiya.github.io and copies only runtime files into projects/bill-studio.
-- ../ghtrack/deploy.sh: same portfolio repo, copies runtime files into public/ghtrack and pushes a path-scoped commit.
+Verified live URL: **https://theramlakhan.com/paytrack/**.
+Source repository: **ramlakhanmadheshiya/PayTrack**, PRIVATE.
 
-The requested destination is now **https://theramlakhan.com/paytrack/**.
-Source stays private in ramlakhanmadheshiya/PayTrack. Only exported fictional-demo runtime assets may be published.
-No DNS/Cloudflare/new host/new accounts. No real workers or private test fixtures in export.
+## Inspected publication pattern
+- Read-only `../bill-studio/tools/deploy.sh`: runtime copy into projects/bill-studio in the portfolio repository.
+- Read-only `../ghtrack/deploy.sh`: runtime copy into public/ghtrack in the same portfolio repository.
+- Portfolio is `ramlakhanmadheshiya/ramlakhanmadheshiya.github.io`.
+- Astro build copies public/ to dist; existing GitHub Actions builds Astro/pagefind and deploys dist with GitHub Pages.
+- No app iframe, backend, new host, account, DNS, domain or subdomain is necessary.
 
-Current portfolio source/CI is being inspected in .tools/portfolio (ignored) before a deployment script is finalized.
-The website root, existing apps and workflows must remain unchanged. Deployment must copy only public/paytrack if the current site confirms the public-directory model.
+## Reproduce
+
+From PayTrack:
+
+```sh
+python3 tools/fetch_web_templates.py
+godot --headless --path . --script tests/run_tests.gd
+godot --headless --path . --export-release Web build/web/index.html
+python3 tools/verify_export.py
+python3 tools/deploy.py
+```
+
+`deploy.py` uses existing gh credentials, pulls an ignored portfolio copy, refuses dirty state, copies only runtime files to **public/paytrack**, checks staged paths, commits and pushes to the existing main branch. It never copies source plans, workbook, tests, backups or local records. It does not alter workflows, root routing, existing apps, DNS, TLS or homepage. No credentials in source and no new cross-repository secrets created.
+
+Source CI in PayTrack runs pinned Godot tests, Web export and PCK allowlist checks, retaining only static runtime artifacts for seven days. It does not automatically publish the portfolio.
+
+## Verification
+- Final portfolio runtime commit: `9a725eb2ef68019dcb9df50c84b5e38e6f79f19d`.
+- Pages run succeeded: https://github.com/ramlakhanmadheshiya/ramlakhanmadheshiya.github.io/actions/runs/43585762615.
+- Actual browser loaded WebAssembly/WebGL2 at the live /paytrack/ path; no new warning/error logs on that URL.
+- `tools/check_site.py` checks homepage, gh-track, Bill Studio, games and CV. Their email-protection hex encoding varies per request; the checker decodes it before hashing semantic content. All five return 200 and match.
+- Git comparison against the inspected portfolio baseline contains only public/paytrack files.
+
+The public demo starts empty, with optional fictional samples. A private source repository does not restrict access to the runtime. Data stays in each browser profile/origin; JSON backups provide portability. No real source-workbook workforce is included.
