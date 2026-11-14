@@ -7,6 +7,7 @@
 - Actual desktop/phone browser workflow verified: ₹7,058 wages − ₹500 kharchi = ₹6,558 payable; ₹6,000 cash leaves ₹558 jama. Reload and downloaded-backup contents verified.
 - See docs/UI_REDESIGN.md for the complete matrix and remaining physical-device coverage.
 - The UI update keeps schema 1 and existing browser records. Public runtime packs are versioned to avoid stale UI caches.
+- Published and visually verified at https://theramlakhan.com/paytrack/; build b9f4f55fca04, zero live browser errors. Private source CI 43598394380 and Pages CI 43598403856 both passed. Existing portfolio page checks matched.
 
 ## Current result
 Functional English Godot Web demo published and verified at **https://theramlakhan.com/paytrack/**.

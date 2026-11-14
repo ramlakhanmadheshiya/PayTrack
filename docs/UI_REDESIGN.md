@@ -28,3 +28,11 @@
 - Runtime PCK allowlist: **53 resources**, no test fixtures/workbook/local data packaged.
 
 The in-app browser is verified. Physical Android-device and native Firefox testing remain outside this check; no Android device is connected. Native browser/file-event automation can stall independently of the application.
+
+## Published verification
+- Private source commit: `b067eb0`. CI passed: https://github.com/ramlakhanmadheshiya/PayTrack/actions/runs/43598394380.
+- Portfolio runtime commit: `561f6f8069af8620fde00f65dc29f4148e235e5c`. Existing Pages CI passed: https://github.com/ramlakhanmadheshiya/ramlakhanmadheshiya.github.io/actions/runs/43598403856.
+- Live URL: https://theramlakhan.com/paytrack/. Actual browser rendered the redesign and reported build `b9f4f55fca04`, matching the verified local runtime pack. Zero warning/error entries for this live app URL.
+- Existing live browser records were retained. No test records were imported into that existing live browser store.
+- Homepage, gh-track, Bill Studio, games and CV returned 200 with unchanged normalized content hashes. Only public/paytrack runtime files changed in the portfolio.
+- Screenshots retained locally in ignored .tools/: paytrack-live-redesign.jpg, paytrack-desktop-redesign.jpg, paytrack-phone-redesign.jpg.
