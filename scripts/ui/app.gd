@@ -517,6 +517,15 @@ func receipt(payment: Dictionary, clear: bool = true):
 			row_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 			c.add_child(row_label)
 		receipt_text += "\n" + "\n".join(lines) + "\n"
+	if payment.slips.size() > 1:
+		c.add_child(label("Family totals",22))
+		receipt_text += "\nFamily totals\n"
+		for field in ["earnings","jama","kharchi","recovery","net","new_jama","shortfall"]:
+			var sum_value = 0
+			for slip in payment.slips: sum_value += int(slip.totals[field])
+			var line = field.replace("_"," ").capitalize() + "   " + P.money(sum_value)
+			c.add_child(label(line,18))
+			receipt_text += line + "\n"
 	c.add_child(label("Combined cash   " + P.money(int(payment.cash)),26))
 	button(c,"Download printable receipt",func():
 		var escaped = receipt_text.xml_escape()

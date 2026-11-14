@@ -121,6 +121,7 @@ func _init():
 	cs.mill("Cycle Mill")
 	var cm = c.data.mills[0].id
 	cs.rate(cm,"F",300,"2026-01-01")
+	cs.rate(cm,"H",250,"2026-01-01")
 	cs.rate(cm,"F",400,"2026-11-10")
 	check(not cs.attendance(cp,cm,"F","2026-11-01","2026-11-15",30,0),"rate boundary split required")
 	check(cs.attendance(cp,cm,"F","2026-11-01","2026-11-07",14,0),"before boundary attendance")
@@ -148,6 +149,7 @@ func _init():
 	for i in 5:
 		ss.mill("Fictional Mill " + str(i))
 		ss.rate(stress.data.mills.back().id,"F",350,"2026-01-01")
+		ss.rate(stress.data.mills.back().id,"H",250,"2026-01-01")
 	for i in 100:
 		ss.person("Fictional Worker " + str(i),"2026-11-01")
 		ss.attendance(stress.data.persons.back().id,stress.data.mills[i%5].id,"F","2026-11-01","2026-11-30",68,120)
@@ -164,6 +166,7 @@ func _init():
 	var spi = sr.data.persons[0].id
 	var smi = sr.data.mills[0].id
 	sp.rate(smi,"F",285,"2026-01-01")
+	sp.rate(smi,"H",250,"2026-01-01")
 	sp.attendance(spi,smi,"F","2026-11-01","2026-11-02",2,0)
 	check(sp.split(sr.data.attendance[0].id,"2026-11-01",1,0),"half-shift split succeeds")
 	check(sr.data.attendance[1].split_adjustment == -1,"visible split adjustment stored")

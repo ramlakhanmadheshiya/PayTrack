@@ -69,6 +69,8 @@ func attendance(person_id: String, mill_id: String, role: String, start: String,
 		return fail("Invalid range, before payroll start, or already paid period.")
 	if role not in ["BM", "F", "H"] or half_units < 0 or half_units > P.MAX_VALUE or minutes < 0 or minutes > P.MAX_VALUE or minutes % 15 != 0 or (role == "BM" and minutes != 0):
 		return fail("Use half attendances and quarter hours; BM has no extra hours.")
+	for required_role in ["F","H"]:
+		if effective("rates","mill_id",mill_id,start,required_role).is_empty(): return fail("Set both F and H mill rates before entering work.")
 	var snapshot = 0
 	if role == "BM":
 		if effective("salaries", "person_id", person_id, start).get("amount", 0) <= 0:
@@ -328,6 +330,9 @@ func family(name: String, member_ids: Array) -> bool:
 		if aligned != "?" and aligned != boundary:
 			return fail("Member paid-up-to dates must align.")
 		aligned = boundary
+		var current_date = Time.get_date_string_from_system()
+		if boundary < current_date and effective("salaries","person_id",key,current_date).get("amount",0) > 0:
+			return fail("Settle accrued BM fixed salary before family changes.")
 		for row in repo.data.attendance:
 			if row.person_id == key and row.settlement_id.is_empty():
 				return fail("Settle pending attendance before family changes.")
@@ -393,6 +398,9 @@ func family_change(key: String, name: String, members: Array) -> bool:
 		var end = who.paid_up_to if not who.paid_up_to.is_empty() else P.date_from_day(P.day(who.payroll_start_date)-1)
 		if boundary != "?" and boundary != end: return fail("All affected paid-up-to dates must align.")
 		boundary = end
+		var current_date = Time.get_date_string_from_system()
+		if end < current_date and effective("salaries","person_id",member,current_date).get("amount",0) > 0:
+			return fail("Settle accrued BM fixed salary for " + who.name)
 		for row in repo.data.attendance:
 			if row.person_id == member and row.settlement_id.is_empty(): return fail("Settle pending attendance for " + who.name)
 		for event in repo.data.ledger:
