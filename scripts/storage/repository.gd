@@ -103,6 +103,7 @@ func validate(value: Variant) -> bool:
 		if not row.get("start") is String or not row.get("end") is String or not p.valid_date(row.start) or not p.valid_date(row.end) or row.start > row.end: return false
 		for field in ["half_units","minutes","rate"]:
 			if not integer(row.get(field),0,1000000000): return false
+		if not integer(row.get("split_adjustment",0),-1000000000,1000000000): return false
 		if int(row.minutes) % 15 != 0 or (row.role == "BM" and (row.minutes != 0 or row.rate != 0)): return false
 		if not row.get("settlement_id") is String or (not row.settlement_id.is_empty() and ids.get(row.settlement_id) != "settlements"): return false
 	for event in value.ledger:

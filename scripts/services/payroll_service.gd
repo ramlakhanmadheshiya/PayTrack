@@ -14,7 +14,7 @@ func audit(action: String, detail: Variant) -> void:
 	repo.data.audit.append({"at": Time.get_datetime_string_from_system(true), "action": action, "detail": detail})
 
 func person(name: String, start: String) -> bool:
-	var clean = " ".join(name.split(" ", false)).strip_edges()
+	var clean = " ".join(name.replace("\t"," ").replace("\n"," ").split(" ", false)).strip_edges()
 	if clean.is_empty() or not P.valid_date(start):
 		return fail("Enter a name and valid payroll start date.")
 	for row in repo.data.persons:
@@ -26,7 +26,7 @@ func person(name: String, start: String) -> bool:
 func search(query: String) -> Array:
 	var results = []
 	for row in repo.data.persons:
-		if query.to_lower() in row.name.to_lower() or query.to_lower() in row.id.to_lower() or (query.is_valid_int() and int(query) == int(row.id.split("-")[1])):
+		if query.is_empty() or query.to_lower() in row.name.to_lower() or query.to_lower() in row.id.to_lower() or (query.is_valid_int() and int(query) == int(row.id.split("-")[1])):
 			results.append(row)
 	return results
 
@@ -94,18 +94,26 @@ func split(entry_id: String, through: String, first_half: int, first_minutes: in
 	var row = repo.find("attendance", entry_id)
 	if row.is_empty() or not row.settlement_id.is_empty() or not P.valid_date(through) or through < row.start or through >= row.end or first_half < 0 or first_half > row.half_units or first_minutes < 0 or first_minutes > row.minutes or first_minutes % 15 != 0:
 		return fail("Invalid split. Only unpaid rows may be split; totals must be conserved.")
+	var split_adjustment = int(row.get("split_adjustment",0))
+	var first_adjustment = 0
 	if row.role != "BM":
 		var old_pay = P.worker(int(row.rate),int(row.half_units),int(row.minutes))
 		var first_pay = P.worker(int(row.rate),first_half,first_minutes)
 		var second_pay = P.worker(int(row.rate),int(row.half_units)-first_half,int(row.minutes)-first_minutes)
-		if old_pay.total != first_pay.total + second_pay.total:
-			return fail("These split counts change rounded wages by a rupee. Review counts; split blocked to preserve the original amount.")
+		split_adjustment += int(old_pay.total) - int(first_pay.total) - int(second_pay.total)
+		if int(second_pay.total) + split_adjustment < 0:
+			first_adjustment = split_adjustment
+			split_adjustment = 0
 	var second = row.duplicate(true)
 	second.id = repo.id("A")
+	second.split_adjustment = split_adjustment
+	second.split_source = row.get("split_source",row.id)
 	second.start = P.date_from_day(P.day(through) + 1)
 	second.half_units = int(row.half_units) - first_half
 	second.minutes = int(row.minutes) - first_minutes
 	audit("split", row.duplicate(true))
+	row.split_adjustment = first_adjustment
+	row.split_source = second.split_source
 	row.end = through
 	row.half_units = first_half
 	row.minutes = first_minutes
@@ -121,8 +129,8 @@ func reprice_preview(mill_id: String, role: String, date: String, amount: int) -
 			if row.start < date:
 				return {"error": "Split crossing row " + row.id + " first."}
 			rows.append(row.id)
-			old_total += P.worker(int(row.rate), int(row.half_units), int(row.minutes)).total
-			new_total += P.worker(amount, int(row.half_units), int(row.minutes)).total
+			old_total += P.worker(int(row.rate), int(row.half_units), int(row.minutes)).total + int(row.get("split_adjustment",0))
+			new_total += P.worker(amount, int(row.half_units), int(row.minutes)).total + int(row.get("split_adjustment",0))
 	return {"rows": rows, "old": old_total, "new": new_total, "amount": amount}
 
 func reprice(preview: Dictionary, reason: String) -> bool:
@@ -175,8 +183,10 @@ func preview(person_id: String, end: String, recovery: int = -1, cash: int = -1,
 		if row.role == "BM":
 			bm_half += int(row.half_units)
 		else:
-			earnings += P.worker(int(row.rate), int(row.half_units), int(row.minutes)).total
-		rows.append(row.duplicate(true))
+			earnings += P.worker(int(row.rate), int(row.half_units), int(row.minutes)).total + int(row.get("split_adjustment",0))
+		var snapshot = row.duplicate(true)
+		snapshot.mill_name = repo.find("mills",row.mill_id).get("name",row.mill_id)
+		rows.append(snapshot)
 	var bm = {}
 	var chosen = effective("salaries", "person_id", person_id, end)
 	if chosen.get("amount", 0) > 0:
@@ -237,6 +247,12 @@ func record_slips(slips: Array, family_id: String, paid_date: String, confirm_ne
 		if group.is_empty() or not group.active or group.members.size() != slips.size(): return fail("Family membership changed.")
 		for member in group.members:
 			if not seen.has(member): return fail("All family members must be included.")
+		var family_net = 0
+		var family_cash = 0
+		for slip in slips:
+			family_net += int(slip.totals.net)
+			family_cash += int(slip.totals.cash)
+		if family_cash > maxi(0,family_net): return fail("Combined cash exceeds the family's net payable.")
 	for slip in slips:
 		if slip.totals.shortfall > 0 and not confirm_negative:
 			return fail("Confirm negative net: shortfall becomes a carry-forward advance.")
@@ -330,15 +346,33 @@ func family_preview(key: String, end: String, overrides: Dictionary = {}) -> Dic
 	if group.is_empty() or not group.active:
 		return {"error": "Select an active family."}
 	var slips = []
-	var cash = 0
+	var net_total = 0
 	for member in group.members:
 		var allocation: Dictionary = overrides.get(member,{})
-		var slip = preview(member, end, int(allocation.get("recovery",-1)), int(allocation.get("cash",-1)), true)
-		if slip.has("error"):
-			return slip
+		var slip = preview(member,end,int(allocation.get("recovery",-1)),-1,true)
+		if slip.has("error"): return slip
 		slips.append(slip)
-		cash += int(slip.totals.cash)
-	return {"slips": slips, "cash": cash, "family_id": key}
+		net_total += int(slip.totals.net)
+	var available_cash = maxi(0,net_total)
+	var cash_total = 0
+	# Explicit overrides reserve cash first; defaults allocate the remaining group net.
+	for slip in slips:
+		var allocation: Dictionary = overrides.get(slip.person_id,{})
+		var explicit_cash = int(allocation.get("cash",-1))
+		if explicit_cash >= 0:
+			if explicit_cash > maxi(0,int(slip.totals.net)): return {"error":"Member cash exceeds individual net."}
+			available_cash -= explicit_cash
+	if available_cash < 0: return {"error":"Family cash exceeds combined net payable."}
+	for index in slips.size():
+		var slip = slips[index]
+		var allocation: Dictionary = overrides.get(slip.person_id,{})
+		var paid = int(allocation.get("cash",-1))
+		if paid < 0:
+			paid = mini(available_cash,maxi(0,int(slip.totals.net)))
+			available_cash -= paid
+		slips[index] = preview(slip.person_id,end,int(slip.totals.recovery),paid,true)
+		cash_total += paid
+	return {"slips":slips,"cash":cash_total,"net":net_total,"family_id":key}
 
 func family_change(key: String, name: String, members: Array) -> bool:
 	var group = repo.find("families",key)
@@ -413,7 +447,8 @@ func salary_comparison(person_id: String, amount: int, date: String, end: String
 	if not salary(person_id,amount,date,"comparison only"):
 		return {"error":error}
 	var updated = preview(person_id,end,-1,-1,true)
-	repo.data = before
+	repo.data.salaries.pop_back()
+	repo.data.next_id = before.next_id
 	if old.has("error") or updated.has("error"):
 		return {"old":0,"new":0,"note":"No payable period through " + end + "; history entry only."}
 	return {"old":old.totals.earnings,"new":updated.totals.earnings,"note":"Unpaid period " + updated.start + " → " + end}

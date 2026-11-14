@@ -19,7 +19,10 @@ var fields = {}
 var batch_rows = []
 
 func _ready():
+	if OS.has_feature("web"):
+		get_window().content_scale_factor = maxf(1.0,float(JavaScriptBridge.eval("window.devicePixelRatio || 1")))
 	var base = Theme.new()
+	base.default_font = preload("res://assets/NotoSans.ttf")
 	base.default_font_size = 16
 	var normal = StyleBoxFlat.new()
 	normal.bg_color = Color.WHITE
@@ -52,9 +55,12 @@ func _ready():
 	var header = HBoxContainer.new()
 	top.add_child(header)
 	var brand = label("PayTrack", 28)
+	brand.autowrap_mode = TextServer.AUTOWRAP_OFF
 	brand.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header.add_child(brand)
-	header.add_child(label("LOCAL DEMO", 13, Color("007aff")))
+	var badge = label("LOCAL DEMO",13,Color("007aff"))
+	badge.autowrap_mode = TextServer.AUTOWRAP_OFF
+	header.add_child(badge)
 	navigation = GridContainer.new()
 	navigation.columns = 7
 	outer.add_child(navigation)
@@ -82,6 +88,9 @@ func _ready():
 	show_page("Home")
 
 func responsive():
+	if OS.has_feature("web"):
+		var scale = maxf(1.0,float(JavaScriptBridge.eval("window.devicePixelRatio || 1")))
+		if not is_equal_approx(get_window().content_scale_factor,scale): get_window().content_scale_factor = scale
 	var narrow = get_viewport_rect().size.x < 700
 	navigation.columns = 4 if narrow else 7
 	navigation.add_theme_constant_override("h_separation", 4 if narrow else 8)
@@ -90,7 +99,8 @@ func responsive():
 
 func label(text: String, size: int = 16, color: Color = Color("1d2838")) -> Label:
 	var node = Label.new()
-	node.text = text
+	node.text = tr(text)
+	node.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	node.add_theme_font_size_override("font_size", size)
 	node.add_theme_color_override("font_color", color)
 	return node
@@ -103,7 +113,9 @@ func text(value: String, size: int = 16):
 
 func button(parent: Node, title: String, callback: Callable) -> Button:
 	var node = Button.new()
-	node.text = title
+	node.text = tr(title)
+	node.clip_text = true
+	node.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	node.custom_minimum_size.y = 46
 	node.pressed.connect(callback)
 	parent.add_child(node)
@@ -138,6 +150,8 @@ func input(parent: Node, title: String, value: String = "") -> LineEdit:
 func select(parent: Node, title: String, collection: Array, title_field: String = "name") -> OptionButton:
 	parent.add_child(label(title, 14, Color("64748b")))
 	var node = OptionButton.new()
+	node.fit_to_longest_item = false
+	node.clip_text = true
 	node.custom_minimum_size.y = 46
 	parent.add_child(node)
 	for row in collection:
@@ -164,25 +178,50 @@ func transact(action: Callable):
 	var before = repo.data.duplicate(true)
 	if not action.call():
 		repo.data = before
+		show_page(current)
 		status.text = service.error
 		return
 	service.audit("account edit", current)
 	if not repo.save():
 		repo.data = before
+		show_page(current)
 		status.text = repo.error
 		return
 	show_page(current)
 	status.text = "Saved on this device. Download a backup to keep a portable copy."
 
 func confirm(message: String, callback: Callable):
-	var dialog = ConfirmationDialog.new()
-	dialog.dialog_text = message
-	dialog.title = "Review and confirm"
-	add_child(dialog)
-	dialog.confirmed.connect(callback)
-	dialog.confirmed.connect(dialog.queue_free)
-	dialog.canceled.connect(dialog.queue_free)
-	dialog.popup_centered(Vector2i(520, 220))
+	var overlay = Control.new()
+	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.z_index = 100
+	add_child(overlay)
+	var dim = ColorRect.new()
+	dim.color = Color(0.05,0.10,0.18,0.35)
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(dim)
+	var center = CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(center)
+	var panel = PanelContainer.new()
+	panel.custom_minimum_size.x = minf(480.0,get_viewport_rect().size.x-48.0)
+	var style = StyleBoxFlat.new()
+	style.bg_color = Color.WHITE
+	style.set_corner_radius_all(20)
+	style.set_content_margin_all(24)
+	panel.add_theme_stylebox_override("panel",style)
+	center.add_child(panel)
+	var content = VBoxContainer.new()
+	content.add_theme_constant_override("separation",18)
+	panel.add_child(content)
+	content.add_child(label("Review and confirm",22))
+	var description = label(message,16)
+	description.custom_minimum_size.x = minf(432.0,get_viewport_rect().size.x-96.0)
+	description.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	content.add_child(description)
+	button(content,"Confirm",func():
+		overlay.queue_free()
+		callback.call())
+	button(content,"Cancel",overlay.queue_free)
 
 func show_page(page: String):
 	current = page
@@ -464,8 +503,10 @@ func receipt(payment: Dictionary, clear: bool = true):
 		var lines = [slip.name + " · " + slip.person_id, slip.start + " → " + slip.end, "Payroll start: " + slip.payroll_start_date]
 		for row in slip.attendance:
 			var parts = P.worker(int(row.rate),int(row.half_units),int(row.minutes))
-			lines.append("%s · %s · %s → %s · %s shifts · %s minutes · rate %s" % [row.mill_id,row.role,row.start,row.end,str(int(row.half_units)/2.0),row.minutes,P.money(int(row.rate))])
-			if row.role != "BM": lines.append("Attendance " + P.money(parts.attendance) + " + hours " + P.money(parts.hours))
+			lines.append("%s · %s · %s → %s · %s shifts · %s minutes · rate %s" % [row.get("mill_name",row.mill_id),row.role,row.start,row.end,str(int(row.half_units)/2.0),row.minutes,P.money(int(row.rate))])
+			if row.role != "BM":
+				lines.append("Attendance " + P.money(parts.attendance) + " + hours " + P.money(parts.hours))
+				if int(row.get("split_adjustment",0)) != 0: lines.append("Split rounding adjustment " + P.money(int(row.split_adjustment)) + " · preserves original range total")
 		if not slip.bm.is_empty():
 			lines.append("BM salary " + P.money(int(slip.bm.salary)) + " · " + str(slip.bm.days) + " days · base " + P.money(int(slip.bm.base)) + " + extra " + P.money(int(slip.bm.extra)))
 		for key in ["earnings","jama","kharchi","recovery","net","cash","new_jama","shortfall"]:
@@ -536,6 +577,15 @@ func settings_page():
 	var new_name = input(m,"New mill name")
 	button(m,"Add mill",func(): transact(func(): return service.mill(new_name.text)))
 	var mill = select(m,"Mill to update",repo.data.mills)
+	var rename = input(m,"Rename selected mill")
+	button(m,"Rename mill",func(): transact(func():
+		var selected_mill = repo.find("mills",selected(mill))
+		if selected_mill.is_empty() or rename.text.strip_edges().is_empty(): return service.fail("Select a mill and enter its name.")
+		for other in repo.data.mills:
+			if other.id != selected_mill.id and other.name.to_lower() == rename.text.strip_edges().to_lower(): return service.fail("Mill name already exists.")
+		service.audit("mill renamed",{"id":selected_mill.id,"old":selected_mill.name,"new":rename.text.strip_edges()})
+		selected_mill.name = rename.text.strip_edges()
+		return true))
 	var role = choice(m,"Role",["F","H"])
 	var rate = input(m,"Whole rupees per attendance","0")
 	var effective = input(m,"Effective from",today())

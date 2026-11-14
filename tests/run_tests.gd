@@ -26,6 +26,7 @@ func _init():
 	s.person("Demo Two","2026-10-21")
 	var one = r.data.persons[0].id
 	var two = r.data.persons[1].id
+	check(s.search("").size() == 2,"empty search lists everyone")
 	check(s.search("1").size() == 1 and s.search("Demo").size() == 2,"search")
 	s.mill("Demo Mill")
 	var mill = r.data.mills[0].id
@@ -155,5 +156,34 @@ func _init():
 		total += int(ss.preview(person.id,"2026-11-30").totals.earnings)
 	check(total == 1195800,"100 workers / five mills exact preview totals")
 	check(stress.restore(stress.backup()) and stress.data.persons.size() == 100,"100-worker backup round trip")
+
+	var sr = R.new("user://paytrack-test-split.json")
+	var sp = S.new(sr)
+	sp.person("Split Demo","2026-11-01")
+	sp.mill("Split Mill")
+	var spi = sr.data.persons[0].id
+	var smi = sr.data.mills[0].id
+	sp.rate(smi,"F",285,"2026-01-01")
+	sp.attendance(spi,smi,"F","2026-11-01","2026-11-02",2,0)
+	check(sp.split(sr.data.attendance[0].id,"2026-11-01",1,0),"half-shift split succeeds")
+	check(sr.data.attendance[1].split_adjustment == -1,"visible split adjustment stored")
+	check(sp.preview(spi,"2026-11-02").totals.earnings == 285,"split rounded wages conserve original")
+	check(sp.record(spi,"2026-11-01","2026-11-01"),"split first part paid")
+	check(sp.preview(spi,"2026-11-02").totals.earnings == 142,"second part carries rounding adjustment once")
+
+	var mixed = R.new("user://paytrack-test-mixed-family.json")
+	var mix = S.new(mixed)
+	mix.person("Credit Demo","2026-11-01")
+	mix.person("Debt Demo","2026-11-01")
+	var credit = mixed.data.persons[0].id
+	var debt = mixed.data.persons[1].id
+	mix.family("Mixed balances",[credit,debt])
+	var mid = mixed.data.families[0].id
+	mix.ledger(credit,"jama",300,"2026-11-01")
+	mix.ledger(debt,"kharchi",100,"2026-11-01")
+	var mp = mix.family_preview(mid,"2026-11-07")
+	check(mp.cash == 200 and mp.net == 200,"family combined cash respects aggregate net")
+	check(mp.slips[0].totals.new_jama == 100 and mp.slips[1].totals.shortfall == 100,"family balances remain individually allocated")
+	check(mix.record_slips(mp.slips,mid,"2026-11-08",true),"mixed family records once")
 	print("RESULT: ",count - failures,"/",count," assertions passed")
 	quit(1 if failures else 0)

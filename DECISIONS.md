@@ -13,5 +13,5 @@
 - Local user:// JSON only; backups are portability. Reminder after 7 days and payments.
 - No source reference worker names/rates packaged as demo data; export scene allowlist excludes tests/plans/docs.
 - Initial data empty; optional fictional sample records with five fictional mills.
-- Current family preview uses default per-member recovery/full cash. Explicit per-member override UI still required.
-- A range split preserves raw attendance/minute totals; separately rounded split components may differ by a rupee. This needs explicit rounding-reconciliation treatment before final readiness.
+- Family preview supports per-member cash/recovery overrides. Combined cash cannot exceed the combined net; defaults allocate cash in member order, displaying each member's jama/advance separately.
+- Owner explicitly approved original rounded total preservation on splits. Store and visibly display an audited split_rounding adjustment on a split row; component formulas remain unchanged. Repeated splitting preserves the original total.

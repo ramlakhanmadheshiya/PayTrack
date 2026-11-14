@@ -26,6 +26,7 @@ jobs:
           python3 tools/fetch_web_templates.py
           mkdir -p build/web
           .tools/Godot_v4.7.2-stable_linux.x86_64 --headless --path . --export-release Web build/web/index.html
+          python3 tools/verify_export.py
       - uses: actions/upload-artifact@v4
         with:
           name: paytrack-web
