@@ -56,6 +56,7 @@ func _gui_input(ev: InputEvent) -> void:
 		elif _down:
 			_down = false
 			_apply()
+			last_tap_global = get_global_transform() * ev.position
 			if enabled and ev.global_position.distance_to(_start) < SLOP and Rect2(Vector2.ZERO, size).has_point(ev.position):
 				tapped.emit()
 				# The tap may have rebuilt the screen and removed this button.

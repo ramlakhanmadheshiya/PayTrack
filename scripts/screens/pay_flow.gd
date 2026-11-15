@@ -290,7 +290,7 @@ func _work_row(i: int, j: int) -> Control:
 	t1.add_child(UI.ellipsis(UI.label(mname, UI.S_BODY, UI.TEXT, 600)))
 	var rate_text := Lang.t("per_month", [Money.group(r.rate)]) if r.post == "BM" else Lang.t("per_att", [Money.group(r.rate)])
 	if r.get("rate_custom", false):
-		rate_text += " ✎"
+		rate_text += " · " + Lang.t("rate_edited")
 	var rate_link := UI.link(rate_text, func(): _edit_rate(i, j), UI.TEXT2, UI.S_CAP)
 	rate_link.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	rate_link.set_styles(UI.pad(StyleBoxEmpty.new(), 0, 2), UI.pad(UI.box(UI.FILL, 6), 0, 2))
@@ -300,6 +300,7 @@ func _work_row(i: int, j: int) -> Control:
 	amt.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	_amount_labels["%d:%d" % [i, j]] = amt
 	top.add_child(amt)
+	top.add_child(UI.icon_button("more", func(): _row_menu(i, j), UI.TEXT2, 20))
 	v.add_child(top)
 	var cap_prefix := "%s · %s %s" % [who, mname, r.post]
 	if r.post != "BM":
@@ -349,6 +350,27 @@ func _work_row(i: int, j: int) -> Control:
 			v.add_child(fields)
 	_update_row_label(i, j)
 	return UI.margin(v, 14, 10, 14, 12)
+
+
+func _row_menu(i: int, j: int) -> void:
+	## Change the rate, or remove work added by mistake (F, H or BM).
+	UI.app.numpad_close()
+	var d: Dictionary = drafts[i]
+	var r: Dictionary = d.rows[j]
+	var pid: String = r.person_id
+	var mid: String = r.mill_id
+	var post: String = r.post
+	var title := "%s · %s %s" % [DB.person(pid).get("name", ""), DB.mill(mid).get("name", "?"), post]
+	UI.app.menu(title, [
+		[Lang.t("monthly_salary") if post == "BM" else Lang.t("rate_per_att"), "rupee", func(): _edit_rate(i, j)],
+		[Lang.t("remove_work"), "trash", func():
+			UI.app.confirm(Lang.t("remove_work"), Lang.t("remove_work_q"), Lang.t("remove"), func():
+				var posts: Array = DB.posts_at(pid, mid).duplicate()
+				posts.erase(post)
+				DB.set_posts_at(pid, mid, posts)
+				DB.rebuild_rows(d)
+				refresh(), true), true],
+	])
 
 
 func _field_with_caption(cap: String, r: Dictionary, key: String, i: int, j: int, np_caption: String, decimals: bool) -> Control:
@@ -577,7 +599,19 @@ func _hisab_card(i: int) -> Control:
 	if h.kharchi > 0:
 		var kt := Tap.new()
 		kt.set_styles(StyleBoxEmpty.new(), UI.box(UI.FILL, 6))
-		var kh := _hisab_line(Lang.t("kharchi_n", [h.count_kharchi]) + ("  ▴" if _expanded.get(i, false) else "  ▾"), "− " + Money.group(h.kharchi), UI.TEXT)
+		var kh := _hisab_line(Lang.t("kharchi_n", [h.count_kharchi]), "− " + Money.group(h.kharchi), UI.TEXT)
+		# Arrow drawn as an icon (the ▾ character is missing from the web font).
+		var arrow := Icons.make("chevron_up" if _expanded.get(i, false) else "chevron_down", UI.TEXT2, 14)
+		var kl: Label = kh.get_child(0)
+		kl.size_flags_horizontal = Control.SIZE_FILL
+		kl.text_overrun_behavior = TextServer.OVERRUN_NO_TRIMMING
+		kl.clip_text = false
+		kl.custom_minimum_size.x = 0
+		kh.add_child(arrow)
+		kh.move_child(arrow, 1)
+		var gap := UI.flex()
+		kh.add_child(gap)
+		kh.move_child(gap, 2)
 		kt.add_child_ignoring(kh)
 		kt.tapped.connect(func(): _expanded[i] = not _expanded.get(i, false); UI.app.numpad_close(); refresh())
 		lines.add_child(kt)

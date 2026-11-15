@@ -1,7 +1,7 @@
 class_name WorkSheet
 extends Sheet
 ## What one person does at one mill: Master (BM), Fireman (F), Helper (H).
-## Opened when adding a worker to a mill, or from the person's page.
+## Opened from the payment page (Add work) and for Add master.
 ## With no mill given, it first asks which mill.
 
 var person_id := ""

@@ -1061,6 +1061,61 @@ func sheets_list() -> Array:
 	return out
 
 
+func sheet_before(sid: String) -> Dictionary:
+	## The latest earlier month's sheet that has mills (to repeat it).
+	var ym: String = sheet(sid).get("ym", "")
+	for sh in sheets_list():
+		if sh.ym < ym and not sheet_mill_ids(sh.id).is_empty():
+			return sh
+	return {}
+
+
+func sheet_repeat(sid: String, from_sid: String) -> Array:
+	## Copies the mills and the worker lists (in order) from another month.
+	## Only who works where: no attendance, no money. Hidden mills and people
+	## are left out, and anything already on this sheet stays as it is.
+	## Returns [mills added, workers added].
+	var sh := sheet(sid)
+	var src := sheet(from_sid)
+	if sh.is_empty() or src.is_empty():
+		return [0, 0]
+	var n_mills := 0
+	var n_workers := 0
+	for sm in src.mills:
+		var m := mill(sm.mill_id)
+		if m.is_empty() or m.get("archived", false):
+			continue
+		var dst := _sheet_mill(sid, sm.mill_id)
+		if dst.is_empty():
+			dst = {"mill_id": sm.mill_id, "workers": []}
+			sh.mills.append(dst)
+			n_mills += 1
+		var have := {}
+		for w in dst.workers:
+			have[w.person_id] = true
+		for w in sm.workers:
+			var p := person(w.person_id)
+			if p.is_empty() or p.get("archived", false) or have.has(w.person_id):
+				continue
+			dst.workers.append({"person_id": w.person_id, "posts": w.posts.duplicate()})
+			have[w.person_id] = true
+			_remember_posts(w.person_id, sm.mill_id, w.posts)
+			n_workers += 1
+	if n_mills + n_workers > 0:
+		log_event("sheet_repeated", [sh.ym, src.ym])
+		save()
+	return [n_mills, n_workers]
+
+
+func sheet_counts(sid: String) -> Array:
+	## [mills, workers] on a sheet (a worker at two mills counts twice).
+	var ids := sheet_mill_ids(sid)
+	var w := 0
+	for mid in ids:
+		w += sheet_workers(sid, mid).size()
+	return [ids.size(), w]
+
+
 func sheet_for(ym: String) -> Dictionary:
 	for sh in data.sheets:
 		if sh.ym == ym:

@@ -25,6 +25,10 @@ func build() -> void:
 		body.add_child(UI.wrapped(UI.label(Lang.t("no_mills_body"), UI.S_SUB, UI.TEXT2)))
 		body.add_child(UI.button(Lang.t("add_mill"), "primary", func(): close(); MillEditSheet.open(""), "plus"))
 		return
+	var prev := DB.sheet_before(sheet_id)
+	if not prev.is_empty():
+		body.add_child(SheetPage.repeat_card(sheet_id, prev, close))
+		body.add_child(UI.spacer(4))
 	if avail.is_empty():
 		body.add_child(UI.wrapped(UI.label(Lang.t("all_mills_added"), UI.S_SUB, UI.TEXT2)))
 		return

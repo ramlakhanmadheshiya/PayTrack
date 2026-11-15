@@ -1,6 +1,7 @@
 class_name PersonPage
 extends Page
-## One person: balance, work (one row per mill), history.
+## One person: balance and history. Work is added from a salary sheet
+## (Salary › month › mill › Add worker) or on the payment page (Add work).
 ## Rename, salary, family and hide/delete live in the ⋯ menu.
 
 var person_id := ""
@@ -43,20 +44,6 @@ func build(b: VBoxContainer) -> void:
 	acts.add_child(UI.expand(UI.button(Lang.t("pay_family") if family else Lang.t("pay"), "primary", func(): Screens.start_pay_khata(kid), "pay")))
 	b.add_child(UI.margin(acts, 16, 12, 16, 0))
 
-	# Work: one row per mill, with the posts done there.
-	b.add_child(UI.section_title(Lang.t("work")))
-	var wc := UI.card()
-	var rows := []
-	for mid in DB.mills_of(person_id):
-		var badges := UI.hbox(4)
-		for post in DB.posts_at(person_id, mid):
-			badges.add_child(UI.badge(post))
-		var m2: String = mid
-		rows.append(UI.row(DB.mill(mid).get("name", "?"), _posts_text(mid), badges, func(): WorkSheet.open(person_id, m2), true, Icons.make("mill", UI.ACCENT, 22)))
-	rows.append(UI.row(Lang.t("add_to_mill"), "" if not rows.is_empty() else Lang.t("add_work_help"), null, func(): WorkSheet.open(person_id), false, Icons.make("plus", UI.ACCENT, 22)))
-	UI.add_rows(wc, rows)
-	b.add_child(UI.margin(wc, 16, 0, 16, 0))
-
 	if not family:
 		Screens.history(b, kid)
 	else:
@@ -74,13 +61,6 @@ func build(b: VBoxContainer) -> void:
 				r2.append(Screens.entry_row(mine[i], false, func(): Screens.open_entry_sheet("", id)))
 			UI.add_rows(oc, r2)
 			b.add_child(UI.margin(oc, 16, 0, 16, 0))
-
-
-func _posts_text(mid: String) -> String:
-	var names := []
-	for post in DB.posts_at(person_id, mid):
-		names.append(Lang.post_name(post))
-	return " · ".join(names)
 
 
 func _menu() -> void:

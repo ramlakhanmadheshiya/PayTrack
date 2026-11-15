@@ -48,6 +48,8 @@ static func text_of(l: Dictionary) -> String:
 			return Lang.t("log_entry_added", [Lang.entry_type(ty), a[1], a[0]])
 		"entry_edited", "entry_deleted":
 			return Lang.t("log_" + k, [Lang.entry_type(l.get("ty", "")), a[1], a[0]])
+		"sheet_repeated":
+			return Lang.t("log_sheet_repeated", [Lang.month_ym(String(a[0])), Lang.month_ym(String(a[1]))])
 		"sheet_added", "sheet_deleted":
 			return Lang.t("log_" + k, [Lang.month_ym(String(a[0]))])
 		"sheet_mill_added", "sheet_mill_removed", "sheet_worker_added", "sheet_worker_removed":

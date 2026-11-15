@@ -45,6 +45,8 @@ func setup() -> void:
 	scroll.add_child(col)
 	body = UI.vbox()
 	col.add_child(body)
+	# Content added later (lists filled after typing) must not block scrolling either.
+	body.resized.connect(_let_scroll)
 	_bottom_holder = UI.vbox()
 	root.add_child(_bottom_holder)
 	refresh()
@@ -77,6 +79,7 @@ func refresh() -> void:
 		body.add_child(hm)
 		body.move_child(hm, 0)
 	body.add_child(UI.spacer(40))
+	UI.let_scroll(body)
 	var bottom := bottom_bar()
 	if bottom:
 		var p := PanelContainer.new()
@@ -92,6 +95,11 @@ func refresh() -> void:
 		p.add_child(col)
 		_bottom_holder.add_child(p)
 	_restore_scroll.call_deferred(keep)
+
+
+func _let_scroll() -> void:
+	if is_instance_valid(body):
+		UI.let_scroll(body)
 
 
 func _restore_scroll(v: int) -> void:

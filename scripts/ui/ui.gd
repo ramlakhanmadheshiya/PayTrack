@@ -132,6 +132,16 @@ static func ignore_mouse(n: Node) -> void:
 		ignore_mouse(c)
 
 
+static func let_scroll(n: Node) -> void:
+	## Plain boxes (PanelContainer, ColorRect…) catch touches by default, so a
+	## drag that starts on them never reaches the scroll view. Let them pass.
+	if n is Control and n.mouse_filter == Control.MOUSE_FILTER_STOP:
+		if not (n is Tap or n is BaseButton or n is LineEdit or n is TextEdit or n is ScrollContainer or n is Range):
+			n.mouse_filter = Control.MOUSE_FILTER_PASS
+	for c in n.get_children():
+		let_scroll(c)
+
+
 static func label(text: String, size := S_BODY, color := TEXT, weight := 400, tabular := false) -> Label:
 	var l := Label.new()
 	l.text = text

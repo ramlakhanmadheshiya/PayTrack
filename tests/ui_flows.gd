@@ -88,6 +88,17 @@ func _run() -> void:
 	app.textpad.press("b")
 	check(ms.name_box.text == "Bunil", "edit a letter in the middle (got %s)" % ms.name_box.text)
 	check(ms.name_box.caret == 1, "cursor stays after the fixed letter")
+	# A real tap inside the text puts the cursor there (not at the start).
+	ms.name_box.set_text("Sunil")
+	await wait(2)
+	var nb: TextField = ms.name_box
+	var tap_at := Vector2(nb._label.global_position.x + nb._text_width(3), nb.get_global_rect().get_center().y)
+	_tap_control(nb, tap_at)
+	await wait(2)
+	check(nb.caret == 3, "tap in the text moves the cursor there (got %d)" % nb.caret)
+	_tap_control(nb, Vector2(nb._label.global_position.x + nb._text_width(1), tap_at.y))
+	await wait(2)
+	check(nb.caret == 1, "tap again moves the cursor back (got %d)" % nb.caret)
 	# Real finger touches on the keys: two fingers at once both type.
 	ms.name_box.set_text("")
 	await wait(2)
@@ -179,6 +190,27 @@ func _run() -> void:
 		order.append(DB.person(w.person_id).name)
 	check(order == ["Worker A", "Worker B", "Head C", "Member D", "Master E"], "sheet keeps the order added")
 	check(DB.sheet_worker_count(sh.id) == 5, "five on the sheet")
+	# Next month: repeat October's mills and worker list.
+	var sh2 := DB.add_sheet("2026-11")
+	check(DB.sheet_before(sh2.id).get("id", "") == sh.id, "previous month found")
+	AddMillsSheet.open(sh2.id)
+	await wait(4)
+	var has_repeat := false
+	for n in app.top_sheet().body.find_children("*", "Label", true, false):
+		if n.text == Lang.t("repeat_month", [Lang.month_ym("2026-10")]):
+			has_repeat = true
+	check(has_repeat, "add mills offers Repeat Oct 2026")
+	app.top_sheet().close()
+	await wait(10)
+	var rr := DB.sheet_repeat(sh2.id, sh.id)
+	check(rr[0] == 1 and rr[1] == 5, "repeat copies 1 mill and 5 workers (got %s)" % [rr])
+	var order2 := []
+	for w in DB.sheet_workers(sh2.id, mid):
+		order2.append(DB.person(w.person_id).name)
+	check(order2 == order, "repeated list keeps the same order")
+	var rr2 := DB.sheet_repeat(sh2.id, sh.id)
+	check(rr2[0] == 0 and rr2[1] == 0, "repeating again adds nothing")
+	DB.delete_sheet(sh2.id)
 	app.go_tab_root("salary")
 	await wait(4)
 	check(DB.people_list().size() == 5, "five people")
@@ -302,6 +334,11 @@ func _run() -> void:
 		r.att = 10.0
 	flow.refresh()
 	await wait()
+	flow._row_menu(0, 0)
+	await wait(4)
+	check(app.top_sheet() != null, "work row menu opens")
+	app.top_sheet().close()
+	await wait(10)
 	flow._go_hisab()
 	await wait()
 	check(flow.step == 2, "hisab step")
@@ -410,6 +447,11 @@ func _run() -> void:
 	await wait(2)
 	app.push(ActivityPage.new())
 	await wait(4)
+	var blocking := 0
+	for n in app.top_page().body.find_children("*", "Control", true, false):
+		if n.mouse_filter == Control.MOUSE_FILTER_STOP and not n is Tap:
+			blocking += 1
+	check(blocking == 0, "activity list does not block scrolling (%d)" % blocking)
 	app.pop()
 	await wait(4)
 	Lang.set_lang("en", false)
@@ -482,6 +524,18 @@ func _selected_segment(holder: Node) -> int:
 		if st is StyleBoxFlat and st.bg_color == UI.CARD:
 			return i
 	return -1
+
+
+func _tap_control(t: Tap, global_pos: Vector2) -> void:
+	## A tap on a control at a point (sent to it directly, like a finger would).
+	var local := t.get_global_transform().affine_inverse() * global_pos
+	for pressed in [true, false]:
+		var m := InputEventMouseButton.new()
+		m.button_index = MOUSE_BUTTON_LEFT
+		m.pressed = pressed
+		m.position = local
+		m.global_position = global_pos
+		t._gui_input(m)
 
 
 func _touch(idx: int, pos: Vector2, pressed: bool) -> void:

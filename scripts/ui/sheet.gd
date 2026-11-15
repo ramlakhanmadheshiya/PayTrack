@@ -113,6 +113,7 @@ func is_wide() -> bool:
 func _layout() -> void:
 	if not is_inside_tree() or panel == null:
 		return
+	UI.let_scroll(body)
 	var vp := get_viewport_rect().size
 	var wide := is_wide()
 	var w: float = minf(vp.x, 560.0) if wide else vp.x

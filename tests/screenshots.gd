@@ -97,6 +97,14 @@ func _run() -> void:
 	await shot("month-pick")
 	app.top_sheet().close()
 	await wait(20)
+	var nov: Dictionary = db.add_sheet("2026-11")
+	SalaryPage.open_sheet(nov.id)
+	await shot("sheet-new-repeat")
+	AddMillsSheet.open(nov.id)
+	await shot("add-mills-repeat")
+	app.top_sheet().close()
+	await wait(20)
+	db.delete_sheet(nov.id)
 	app.pop_to_root()
 	# Mills & People: mills.
 	app.switch_tab("people")
@@ -155,7 +163,14 @@ func _run() -> void:
 	flow.refresh()
 	flow.scroll.scroll_vertical = 0
 	await shot("pay-split")
+	flow._row_menu(0, 0)
+	await shot("pay-row-menu")
+	app.top_sheet().close()
+	await wait(20)
 	flow._go_hisab()
+	for k in flow.drafts.size():
+		flow._expanded[k] = true
+	flow.refresh()
 	await shot("hisab")
 	flow.scroll.scroll_vertical = 600
 	await shot("hisab-2")
