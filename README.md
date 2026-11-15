@@ -1,41 +1,74 @@
 # PayTrack
 
-Local-first labour payroll / hisab-kitab, built in **Godot 4.7.2 stable** (`ed1daf0bf`) using GDScript and Compatibility rendering. Source repository is private. The public test app starts empty and offers optional fictional sample data.
+Labour payroll for mill contractors: daily kharchi, advances, jama, family khatas, and
+monthly payments with work periods. It replaces the diary + Excel mill sheets.
+Built with **Godot 4.7.2** (GDScript, Compatibility renderer), like Single Shot.
 
-Live fictional demo: https://theramlakhan.com/paytrack/
+- Android app (APK): built by GitHub Actions on every push and attached to the
+  [`latest` release](../../releases/tag/latest).
+- Web version: https://theramlakhan.com/paytrack/ (for trying the app; each browser keeps its own data).
+- iPad: same project, exported from this Mac with Xcode (see below).
 
-Verified locally: 98/98 domain assertions plus 51/51 UI workflow checks; 58/58 worker rows from the original sheet reconcile after required rounding. Browser persistence, backup replacement and a fictional payment were exercised. Full native Chrome/Firefox/Android testing and Hindi remain.
+The full plan agreed with the owner is in [PLAN.md](PLAN.md).
 
-## Run
+## How the money works (short)
 
-Open `project.godot` in Godot 4.7.2, press F6/F5, or:
+- Every person has a **khata**. A family shares one, paid to its head.
+  Balance **+** = jama (we owe them), **−** = advance left (they owe us).
+- Kharchi / advance / jama-paid / received entries stay **open** until the person's next payment settles them.
+- A payment has a **payment date** and a **work period** (From = day after the last paid day,
+  Up to = end of last month by default, editable).
+- F/H row = `round(rate × att + rate × hr ÷ 12)`. Master (BM) row = `round(salary × att ÷ days)`,
+  days = days of the work period's first month (**Normal**), or each month separately (**Split**).
+  Every row is rounded half-up, then added.
+- Due = previous balance + earnings − kharchi − advance − jama paid + received.
+  Pay full / pay part / keep as jama; what is left becomes the new balance.
+- Rates and salaries are effective-dated; saved payments keep their own numbers forever.
+
+## Code map
+
+| Path | What |
+|---|---|
+| `scripts/core/calc.gd` | Pure payroll maths (tested) |
+| `scripts/core/store.gd` | Data, balances, payments, export/import (autoload `DB`) |
+| `scripts/core/dates.gd`, `money.gd` | Date strings `YYYY-MM-DD`, rupees, Indian grouping |
+| `scripts/core/lang.gd`, `strings.gd` | English / Hindi (autoload `Lang`) |
+| `scripts/ui/*` | Design system: `UI`, `Tap` (scroll-safe taps), `Page`, `Sheet`, `NumPad`, `NumField`, `DateSheet`, icons, app shell |
+| `scripts/screens/*` | Home, Mills, People, Balances, More, Pay flow, Bill, sheets |
+| `scripts/platform/*` | Share / export / import per platform, tiny PDF writer |
+| `plugins_src/paytrack_share` | Android plugin: share sheet + file picker (built in CI) |
+| `tests/test_core.gd` | Engine tests incl. every F/H row of the owner's sheet (numbers only) |
+| `tests/screenshots.tscn` | Walks every main screen with made-up data and saves PNGs |
+
+## Commands
 
 ```sh
-godot --path .
-godot --headless --path . --script tests/run_tests.gd
-godot --headless --path . --script tests/run_ui_tests.gd
+G=/Applications/Godot.app/Contents/MacOS/Godot
+$G --headless --path . --script tests/test_core.gd                        # tests
+$G --path . tests/screenshots.tscn -- /tmp/shots phone en                # screenshots (phone|ipad, en|hi)
+$G --headless --path . --script tools/make_icons.gd                      # icons from SVG
+python3 tools/fetch_web_templates.py                                     # web templates (once)
+$G --headless --path . --export-release Web build/web/index.html && python3 tools/prepare_web.py
+python3 tools/serve.py                                                   # http://127.0.0.1:8766/
+python3 tools/deploy.py                                                  # publish to theramlakhan.com/paytrack
 ```
 
-## Web
+## Data and privacy
 
-```sh
-python3 tools/fetch_web_templates.py
-godot --headless --path . --export-release Web build/web/index.html
-python3 tools/prepare_web.py
-python3 tools/verify_export.py
-python3 tools/serve.py
-```
+Data lives only on the device (`user://paytrack.json`, IndexedDB on the web), with an automatic
+previous copy. More → Export makes one `.paytrack` file; Import on another device replaces its data
+(the old data is kept for Undo import). No real names or amounts go into this repo or the public site.
 
-Open http://127.0.0.1:8766/web/ over HTTP. Single threaded, no PWA or special isolation headers. Templates are downloaded only from the pinned official Godot release and stored in ignored `.tools/`.
+## Signing
 
-Records stay in Godot `user://`, using browser IndexedDB in Web exports. They do **not** sync across devices/profiles, and browser clearing may remove them. Settings provides JSON backup/restore with integrity checking and a replacement preview; CSV exports and printable HTML receipts are available. Use only fictional records in the public demo.
+The Android release key is `~/.android-keys/PayTrack-release.*`, backed up in
+`~/Desktop/Apps/Games/Backup Game/PayTrack/`, and stored as the repo secrets `ANDROID_KEYSTORE_*`.
+Never replace it: updates only install over the old app when signed with the same key.
 
-Money uses integer INR; attendance uses half-units; extra time uses minutes in quarter-hour increments. Domain and services are separate from UI/storage. Rates and salaries are effective-dated, saved payments are snapshots.
+## iPad
 
-See PROGRESS.md for verified results and unfinished acceptance criteria. Do not use this development build for actual payroll yet.
+Add an iOS export preset in the Godot editor (bundle id `com.theramlakhan.paytrack`, your Apple team,
+icon `assets/icon/ios-1024.png`, "Files app access" on so exports appear in Files › PayTrack),
+export the Xcode project and run it on the iPad from Xcode.
 
-Future Android export will reuse this project, but no Android workflow or signing setup is included now.
-
-Noto Sans is bundled under the SIL Open Font License; see assets/NotoSans-LICENSE.txt.
-
-The contractor interface uses focused daily actions and calendar dates; see docs/UI_REDESIGN.md for redesign and verification details.
+Fonts: Inter and Noto Sans Devanagari, SIL Open Font License (`assets/fonts/OFL-*.txt`).

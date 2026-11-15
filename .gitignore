@@ -3,7 +3,9 @@ build/
 .tools/
 .DS_Store
 *.tmp
-*.bak
-.env*
-*backup*.json
-*.csv
+addons/paytrack_share/bin/
+android/
+plugins_src/paytrack_share/build/
+plugins_src/paytrack_share/.gradle/
+*.paytrack
+PLAN.md

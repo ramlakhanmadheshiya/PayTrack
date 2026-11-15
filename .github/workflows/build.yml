@@ -1,0 +1,153 @@
+name: Build PayTrack
+
+# Tests the payroll engine, then builds a signed Android APK and the web version.
+# The APK is attached to the "latest" GitHub Release of this repo (download it on the phone).
+# The web build is published to theramlakhan.com/paytrack with tools/deploy.py (run on the Mac).
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build
+  cancel-in-progress: true
+
+env:
+  GODOT_VERSION: 4.7.2
+  GODOT_RELEASE: 4.7.2-stable
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Cache Godot
+        id: cache-godot
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/godot
+            ~/.local/share/godot/export_templates
+          key: godot-${{ env.GODOT_RELEASE }}
+
+      - name: Download Godot and export templates
+        if: steps.cache-godot.outputs.cache-hit != 'true'
+        run: |
+          base="https://github.com/godotengine/godot-builds/releases/download/${GODOT_RELEASE}"
+          mkdir -p ~/godot
+          curl -fsSL -o /tmp/godot.zip "$base/Godot_v${GODOT_RELEASE}_linux.x86_64.zip"
+          unzip -q /tmp/godot.zip -d ~/godot
+          curl -fsSL -o /tmp/templates.tpz "$base/Godot_v${GODOT_RELEASE}_export_templates.tpz"
+          unzip -q /tmp/templates.tpz -d /tmp/tpl
+          dest="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          mkdir -p "$dest"
+          mv /tmp/tpl/templates/* "$dest/"
+
+      - name: Put Godot on PATH
+        run: |
+          ln -sf ~/godot/Godot_v${GODOT_RELEASE}_linux.x86_64 /usr/local/bin/godot
+          godot --version
+
+      - name: Import project
+        run: godot --headless --path . --import || true
+
+      - name: Run tests
+        run: godot --headless --path . --script tests/test_core.gd
+
+      - name: Configure Android signing
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEYSTORE_ALIAS: ${{ secrets.ANDROID_KEYSTORE_ALIAS }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::error::No release keystore secret. Run game-keys.sh setup for PayTrack."
+            exit 1
+          fi
+          ks="$RUNNER_TEMP/release.keystore"
+          echo "$KEYSTORE_B64" | base64 -d > "$ks"
+          {
+            echo "GODOT_ANDROID_KEYSTORE_RELEASE_PATH=$ks"
+            echo "GODOT_ANDROID_KEYSTORE_RELEASE_USER=$KEYSTORE_ALIAS"
+            echo "GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD=$KEYSTORE_PASSWORD"
+          } >> "$GITHUB_ENV"
+          keytool -genkeypair -keystore "$RUNNER_TEMP/debug.keystore" -storepass android -keypass android \
+            -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug"
+          major_minor="${GODOT_VERSION%.*}"
+          mkdir -p ~/.config/godot
+          cat > ~/.config/godot/editor_settings-${major_minor}.tres <<EOT
+          [gd_resource type="EditorSettings" format=3]
+
+          [resource]
+          export/android/android_sdk_path = "${ANDROID_HOME}"
+          export/android/java_sdk_path = "${JAVA_HOME}"
+          export/android/debug_keystore = "$RUNNER_TEMP/debug.keystore"
+          export/android/debug_keystore_user = "androiddebugkey"
+          export/android/debug_keystore_pass = "android"
+          EOT
+
+      - name: Android SDK packages
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.1.0" > /dev/null
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.3"
+
+      - name: Build the share plugin (Android library)
+        run: |
+          gradle -p plugins_src/paytrack_share assembleRelease --no-daemon --stacktrace
+          mkdir -p addons/paytrack_share/bin
+          cp plugins_src/paytrack_share/build/outputs/aar/paytrack_share-release.aar addons/paytrack_share/bin/
+
+      - name: Version
+        run: |
+          code=$((100 + ${{ github.run_number }}))
+          sed -i "s/^version\/code=.*/version\/code=$code/" export_presets.cfg
+          sed -i "s/^version\/name=.*/version\/name=\"1.0.${{ github.run_number }}\"/" export_presets.cfg
+          sed -i "s/^config\/version=.*/config\/version=\"1.0.${{ github.run_number }}\"/" project.godot
+
+      - name: Install Android build template
+        run: |
+          godot --headless --path . --install-android-build-template --quit || true
+          test -d android/build || { mkdir -p android/build; unzip -q ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable/android_source.zip -d android/build; echo "${GODOT_VERSION}.stable" > android/.build_version; }
+
+      - name: Export Android APK
+        run: |
+          mkdir -p build/android
+          godot --headless --path . --export-release Android build/android/paytrack.apk
+          ls -l build/android
+
+      - name: Export web build
+        run: |
+          mkdir -p .tools/templates build/web
+          cp ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable/web_nothreads_release.zip .tools/templates/
+          cp ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable/web_nothreads_debug.zip .tools/templates/
+          godot --headless --path . --export-release Web build/web/index.html
+          python3 tools/prepare_web.py
+
+      - name: Publish APK to the "latest" release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp build/android/paytrack.apk build/android/PayTrack.apk
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest build/android/PayTrack.apk \
+            --title "PayTrack 1.0.${{ github.run_number }}" \
+            --notes "Android app. On the phone: open this page, download PayTrack.apk, open it and allow install. Updates install over the old app and keep your data."
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: paytrack-web
+          path: build/web/
+          retention-days: 14

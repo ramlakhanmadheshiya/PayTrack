@@ -1,0 +1,934 @@
+extends Node
+## The app's data (autoload "DB"). Everything lives in one dictionary saved as
+## JSON in user:// (IndexedDB in the browser). All changes go through methods
+## here so balances and pay periods can never get out of step.
+
+signal changed
+
+const SAVE_PATH := "user://paytrack.json"
+const PREV_PATH := "user://paytrack.previous.json"
+const IMPORT_UNDO_PATH := "user://paytrack.before-import.json"
+const FORMAT := 1
+const POSTS := ["BM", "F", "H"]
+
+var data: Dictionary = {}
+var save_enabled := true
+
+
+func _ready() -> void:
+	load_data()
+	Lang.set_lang(String(data.settings.get("lang", "en")), false)
+
+
+# --------------------------------------------------------------------------
+# Load / save
+# --------------------------------------------------------------------------
+
+static func empty_data() -> Dictionary:
+	return {
+		"format": FORMAT,
+		"mills": [],
+		"people": [],
+		"khatas": [],
+		"entries": [],
+		"payments": [],
+		"settings": {"lang": "en", "last_export": "", "text_size": 1.0},
+		"meta": {"updated": 0, "created": int(Time.get_unix_time_from_system())},
+	}
+
+
+func load_data() -> void:
+	data = empty_data()
+	if not save_enabled:
+		return
+	for path in [SAVE_PATH, PREV_PATH]:
+		if FileAccess.file_exists(path):
+			var parsed = JSON.parse_string(FileAccess.get_file_as_string(path))
+			if parsed is Dictionary and _looks_valid(parsed):
+				data = normalize(parsed)
+				return
+
+
+func reset_for_tests() -> void:
+	save_enabled = false
+	data = empty_data()
+
+
+func save() -> void:
+	data.meta.updated = int(Time.get_unix_time_from_system())
+	if save_enabled:
+		_write_file(SAVE_PATH, JSON.stringify(data))
+	changed.emit()
+
+
+func _write_file(path: String, text: String) -> void:
+	if FileAccess.file_exists(path) and path == SAVE_PATH:
+		DirAccess.copy_absolute(ProjectSettings.globalize_path(SAVE_PATH), ProjectSettings.globalize_path(PREV_PATH))
+	var tmp := path + ".tmp"
+	var f := FileAccess.open(tmp, FileAccess.WRITE)
+	if f == null:
+		push_error("Cannot save " + path)
+		return
+	f.store_string(text)
+	f.close()
+	DirAccess.rename_absolute(ProjectSettings.globalize_path(tmp), ProjectSettings.globalize_path(path))
+
+
+static func _looks_valid(d: Dictionary) -> bool:
+	for k in ["mills", "people", "khatas", "entries", "payments"]:
+		if not (d.get(k) is Array):
+			return false
+	return true
+
+
+static func normalize(d: Dictionary) -> Dictionary:
+	## JSON gives every number back as float; money and days are ints.
+	var out := empty_data()
+	for k in ["mills", "people", "khatas", "entries", "payments"]:
+		out[k] = d.get(k, [])
+	if d.get("settings") is Dictionary:
+		out.settings.merge(d.settings, true)
+	if d.get("meta") is Dictionary:
+		out.meta.merge(d.meta, true)
+	out.meta.updated = int(out.meta.get("updated", 0))
+	for m in out.mills:
+		for r in m.get("rates", []):
+			r.f = int(r.get("f", 0))
+			r.h = int(r.get("h", 0))
+	for p in out.people:
+		for s in p.get("salaries", []):
+			s.amount = int(s.get("amount", 0))
+	for k in out.khatas:
+		k.opening = int(k.get("opening", 0))
+	for e in out.entries:
+		e.amount = int(e.get("amount", 0))
+		e.created = int(e.get("created", 0))
+	for pay in out.payments:
+		for key in ["earnings", "prev_balance", "kharchi", "advance", "payout", "received", "adjust", "due", "paid", "new_balance", "created", "count_kharchi"]:
+			pay[key] = int(pay.get(key, 0))
+		for r in pay.get("rows", []):
+			r.rate = int(r.get("rate", 0))
+			r.amount = int(r.get("amount", 0))
+			r.days = int(r.get("days", 0))
+			for mo in r.get("months", []):
+				mo.days = int(mo.get("days", 0))
+				mo.salary = int(mo.get("salary", 0))
+				mo.amount = int(mo.get("amount", 0))
+	return out
+
+
+# --------------------------------------------------------------------------
+# Ids and lookups
+# --------------------------------------------------------------------------
+
+func new_id(prefix: String) -> String:
+	return "%s%d%04x" % [prefix, Time.get_unix_time_from_system(), randi() % 65536]
+
+
+func _find(list: Array, id: String) -> Dictionary:
+	for x in list:
+		if x.get("id", "") == id:
+			return x
+	return {}
+
+
+func mill(id: String) -> Dictionary:
+	return _find(data.mills, id)
+
+
+func person(id: String) -> Dictionary:
+	return _find(data.people, id)
+
+
+func khata(id: String) -> Dictionary:
+	return _find(data.khatas, id)
+
+
+func entry(id: String) -> Dictionary:
+	return _find(data.entries, id)
+
+
+func payment(id: String) -> Dictionary:
+	return _find(data.payments, id)
+
+
+func setting(key: String, default = null):
+	return data.settings.get(key, default)
+
+
+func set_setting(key: String, value) -> void:
+	data.settings[key] = value
+	save()
+
+
+static func _norm_name(s: String) -> String:
+	return " ".join(s.strip_edges().to_lower().split(" ", false))
+
+
+static func _by_name(a: Dictionary, b: Dictionary) -> bool:
+	return String(a.get("name", "")).naturalnocasecmp_to(String(b.get("name", ""))) < 0
+
+
+# --------------------------------------------------------------------------
+# Mills
+# --------------------------------------------------------------------------
+
+func mills_list(include_archived := false) -> Array:
+	var out := []
+	for m in data.mills:
+		if include_archived or not m.get("archived", false):
+			out.append(m)
+	out.sort_custom(func(a, b): return int(a.get("order", 0)) < int(b.get("order", 0)) if a.get("order", 0) != b.get("order", 0) else _by_name(a, b))
+	return out
+
+
+func mill_name_taken(name: String, except_id := "") -> bool:
+	for m in data.mills:
+		if m.id != except_id and _norm_name(m.name) == _norm_name(name):
+			return true
+	return false
+
+
+func add_mill(name: String, f_rate: int, h_rate: int, from := "") -> Dictionary:
+	var m := {
+		"id": new_id("m"),
+		"name": name.strip_edges(),
+		"rates": [{"from": from if from != "" else "2000-01-01", "f": f_rate, "h": h_rate}],
+		"archived": false,
+		"order": data.mills.size(),
+	}
+	data.mills.append(m)
+	save()
+	return m
+
+
+func rename_mill(id: String, name: String) -> void:
+	mill(id).name = name.strip_edges()
+	save()
+
+
+func set_mill_archived(id: String, archived: bool) -> void:
+	mill(id).archived = archived
+	save()
+
+
+func add_mill_rate(id: String, from: String, f_rate: int, h_rate: int) -> void:
+	var m := mill(id)
+	var rates: Array = m.rates
+	for r in rates:
+		if r.from == from:
+			r.f = f_rate
+			r.h = h_rate
+			save()
+			return
+	rates.append({"from": from, "f": f_rate, "h": h_rate})
+	rates.sort_custom(func(a, b): return a.from < b.from)
+	save()
+
+
+func delete_mill_rate(id: String, from: String) -> void:
+	var m := mill(id)
+	if m.rates.size() <= 1:
+		return
+	for i in m.rates.size():
+		if m.rates[i].from == from:
+			m.rates.remove_at(i)
+			break
+	save()
+
+
+func mill_rate(id: String, post: String, date: String) -> int:
+	var m := mill(id)
+	if m.is_empty():
+		return 0
+	return Calc.value_on(m.rates, date, "f" if post == "F" else "h")
+
+
+func mill_workers(id: String) -> Array:
+	var out := []
+	for p in people_list():
+		for po in p.posts:
+			if po.mill_id == id:
+				out.append(p)
+				break
+	return out
+
+
+# --------------------------------------------------------------------------
+# People and khatas
+# --------------------------------------------------------------------------
+
+func people_list(include_archived := false) -> Array:
+	var out := []
+	for p in data.people:
+		if include_archived or not p.get("archived", false):
+			out.append(p)
+	out.sort_custom(_by_name)
+	return out
+
+
+func find_person_by_name(name: String) -> Dictionary:
+	for p in data.people:
+		if _norm_name(p.name) == _norm_name(name):
+			return p
+	return {}
+
+
+func person_name_taken(name: String, except_id := "") -> bool:
+	var p := find_person_by_name(name)
+	return not p.is_empty() and p.id != except_id
+
+
+func add_person(name: String, posts: Array = [], salary := 0, salary_from := "") -> Dictionary:
+	var p := {
+		"id": new_id("p"),
+		"name": name.strip_edges(),
+		"khata_id": "",
+		"posts": [],
+		"salaries": [],
+		"phone": "",
+		"archived": false,
+		"created": int(Time.get_unix_time_from_system()),
+	}
+	var k := {"id": new_id("k"), "payee_id": p.id, "members": [p.id], "opening": 0, "start": "", "paid_upto": "", "archived": false}
+	p.khata_id = k.id
+	for po in posts:
+		p.posts.append({"mill_id": po.mill_id, "post": po.post})
+	if salary > 0:
+		p.salaries.append({"from": salary_from if salary_from != "" else "2000-01-01", "amount": salary})
+	data.people.append(p)
+	data.khatas.append(k)
+	save()
+	return p
+
+
+func rename_person(id: String, name: String) -> void:
+	person(id).name = name.strip_edges()
+	save()
+
+
+func set_person_phone(id: String, phone: String) -> void:
+	person(id).phone = phone.strip_edges()
+	save()
+
+
+func set_person_archived(id: String, archived: bool) -> void:
+	person(id).archived = archived
+	save()
+
+
+func has_post(pid: String, mill_id: String, post: String) -> bool:
+	for po in person(pid).posts:
+		if po.mill_id == mill_id and po.post == post:
+			return true
+	return false
+
+
+func add_post(pid: String, mill_id: String, post: String) -> void:
+	if has_post(pid, mill_id, post):
+		return
+	person(pid).posts.append({"mill_id": mill_id, "post": post})
+	save()
+
+
+func remove_post(pid: String, mill_id: String, post: String) -> void:
+	var p := person(pid)
+	for i in p.posts.size():
+		if p.posts[i].mill_id == mill_id and p.posts[i].post == post:
+			p.posts.remove_at(i)
+			break
+	save()
+
+
+func sorted_posts(pid: String) -> Array:
+	var p := person(pid)
+	var out: Array = p.get("posts", []).duplicate()
+	var order := {}
+	var i := 0
+	for m in mills_list(true):
+		order[m.id] = i
+		i += 1
+	out.sort_custom(func(a, b):
+		if a.mill_id != b.mill_id:
+			return int(order.get(a.mill_id, 999)) < int(order.get(b.mill_id, 999))
+		return POSTS.find(a.post) < POSTS.find(b.post))
+	return out
+
+
+func is_master(pid: String) -> bool:
+	for po in person(pid).get("posts", []):
+		if po.post == "BM":
+			return true
+	return false
+
+
+func add_salary(pid: String, from: String, amount: int) -> void:
+	var p := person(pid)
+	for s in p.salaries:
+		if s.from == from:
+			s.amount = amount
+			save()
+			return
+	p.salaries.append({"from": from, "amount": amount})
+	p.salaries.sort_custom(func(a, b): return a.from < b.from)
+	save()
+
+
+func delete_salary(pid: String, from: String) -> void:
+	var p := person(pid)
+	if p.salaries.size() <= 1:
+		return
+	for i in p.salaries.size():
+		if p.salaries[i].from == from:
+			p.salaries.remove_at(i)
+			break
+	save()
+
+
+func salary_on(pid: String, date: String) -> int:
+	return Calc.value_on(person(pid).get("salaries", []), date, "amount")
+
+
+func khata_of(pid: String) -> Dictionary:
+	return khata(person(pid).get("khata_id", ""))
+
+
+func khata_members(kid: String) -> Array:
+	## Payee first, then the other members by name.
+	var k := khata(kid)
+	var out := []
+	var others := []
+	for mid in k.get("members", []):
+		var p := person(mid)
+		if p.is_empty():
+			continue
+		if mid == k.payee_id:
+			out.append(p)
+		else:
+			others.append(p)
+	others.sort_custom(_by_name)
+	return out + others
+
+
+func is_family(kid: String) -> bool:
+	return khata(kid).get("members", []).size() > 1
+
+
+func khata_title(kid: String) -> String:
+	var k := khata(kid)
+	var payee := person(k.get("payee_id", ""))
+	return String(payee.get("name", "?"))
+
+
+func khata_subtitle(kid: String) -> String:
+	var names := []
+	for p in khata_members(kid):
+		if p.id != khata(kid).payee_id:
+			names.append(p.name)
+	return ", ".join(names)
+
+
+func active_khatas() -> Array:
+	var out := []
+	for k in data.khatas:
+		if k.get("archived", false):
+			continue
+		var payee := person(k.payee_id)
+		if payee.is_empty() or payee.get("archived", false):
+			continue
+		out.append(k)
+	out.sort_custom(func(a, b): return khata_title(a.id).naturalnocasecmp_to(khata_title(b.id)) < 0)
+	return out
+
+
+func set_opening_balance(kid: String, amount: int, start := "") -> void:
+	var k := khata(kid)
+	k.opening = amount
+	if start != "":
+		k.start = start
+	save()
+
+
+func set_khata_start(kid: String, start: String) -> void:
+	khata(kid).start = start
+	save()
+
+
+func join_family(payee_id: String, member_id: String) -> String:
+	## Moves member's own khata into the payee's khata. Returns "" or an error key.
+	if payee_id == member_id:
+		return "err_same_person"
+	var fam := khata_of(payee_id)
+	var own := khata_of(member_id)
+	if fam.id == own.id:
+		return "err_already_family"
+	if own.members.size() > 1:
+		return "err_member_has_family"
+	# Open kharchi/advances move with the person; a settled balance (jama or
+	# advance left) is carried into the family as one adjustment line.
+	for e in data.entries:
+		if e.khata_id == own.id and e.payment_id == "":
+			e.khata_id = fam.id
+	var carried_settled := settled_balance(own.id)
+	if carried_settled != 0:
+		data.entries.append(_new_entry(fam.id, member_id, "adjust", carried_settled, Dates.today(), "balance_from_member"))
+	own.archived = true
+	fam.members.append(member_id)
+	person(member_id).khata_id = fam.id
+	save()
+	return ""
+
+
+func leave_family(member_id: String) -> String:
+	var fam := khata_of(member_id)
+	if fam.payee_id == member_id:
+		return "err_payee_cannot_leave"
+	fam.members.erase(member_id)
+	var k := {"id": new_id("k"), "payee_id": member_id, "members": [member_id], "opening": 0, "start": "", "paid_upto": fam.get("paid_upto", ""), "archived": false}
+	data.khatas.append(k)
+	person(member_id).khata_id = k.id
+	save()
+	return ""
+
+
+func set_payee(kid: String, pid: String) -> void:
+	var k := khata(kid)
+	if pid in k.members:
+		k.payee_id = pid
+		save()
+
+
+# --------------------------------------------------------------------------
+# Entries: kharchi, advance, jama payout, money received
+# --------------------------------------------------------------------------
+
+func _new_entry(kid: String, pid: String, type: String, amount: int, date: String, note := "", payment_id := "") -> Dictionary:
+	return {
+		"id": new_id("e"),
+		"khata_id": kid,
+		"person_id": pid,
+		"type": type,
+		"amount": amount,
+		"date": date,
+		"note": note,
+		"created": int(Time.get_unix_time_from_system() * 1000) + randi() % 1000,
+		"payment_id": payment_id,
+	}
+
+
+func add_entry(pid: String, type: String, amount: int, date: String, note := "") -> Dictionary:
+	var e := _new_entry(person(pid).khata_id, pid, type, amount, date, note)
+	data.entries.append(e)
+	save()
+	return e
+
+
+func update_entry(id: String, type: String, amount: int, date: String, note: String) -> bool:
+	var e := entry(id)
+	if e.is_empty() or e.payment_id != "":
+		return false
+	e.type = type
+	e.amount = amount
+	e.date = date
+	e.note = note
+	save()
+	return true
+
+
+func delete_entry(id: String) -> bool:
+	for i in data.entries.size():
+		if data.entries[i].id == id:
+			if data.entries[i].payment_id != "":
+				return false
+			data.entries.remove_at(i)
+			save()
+			return true
+	return false
+
+
+func open_entries(kid: String, upto_date := "") -> Array:
+	var out := []
+	for e in data.entries:
+		# Balance carry-overs ("adjust") always count, whatever their date.
+		if e.khata_id == kid and e.payment_id == "" and (upto_date == "" or e.date <= upto_date or e.type == "adjust"):
+			out.append(e)
+	out.sort_custom(func(a, b): return a.date < b.date if a.date != b.date else a.created < b.created)
+	return out
+
+
+func entries_on(date: String) -> Array:
+	var out := []
+	for e in data.entries:
+		if e.date == date and e.type != "adjust":
+			out.append(e)
+	out.sort_custom(func(a, b): return a.created > b.created)
+	return out
+
+
+func entries_of_khata(kid: String) -> Array:
+	var out := []
+	for e in data.entries:
+		if e.khata_id == kid:
+			out.append(e)
+	return out
+
+
+# --------------------------------------------------------------------------
+# Balances
+# --------------------------------------------------------------------------
+
+func payments_of(kid: String) -> Array:
+	var out := []
+	for p in data.payments:
+		if p.khata_id == kid:
+			out.append(p)
+	out.sort_custom(func(a, b): return a.created < b.created)
+	return out
+
+
+func last_payment(kid: String) -> Dictionary:
+	var list := payments_of(kid)
+	return {} if list.is_empty() else list[-1]
+
+
+func settled_balance(kid: String) -> int:
+	var last := last_payment(kid)
+	if not last.is_empty():
+		return int(last.new_balance)
+	return int(khata(kid).get("opening", 0))
+
+
+func live_balance(kid: String) -> int:
+	## Settled balance plus everything taken / given since (positive = you owe them).
+	var b := settled_balance(kid)
+	for e in open_entries(kid):
+		b += Calc.entry_effect(e)
+	return b
+
+
+func totals() -> Dictionary:
+	var jama := 0
+	var advance := 0
+	for k in active_khatas():
+		var b := live_balance(k.id)
+		if b > 0:
+			jama += b
+		elif b < 0:
+			advance += -b
+	return {"jama": jama, "advance": advance}
+
+
+# --------------------------------------------------------------------------
+# Payments
+# --------------------------------------------------------------------------
+
+func next_work_from(kid: String) -> String:
+	var k := khata(kid)
+	if String(k.get("paid_upto", "")) != "":
+		return Dates.add_days(k.paid_upto, 1)
+	return String(k.get("start", ""))
+
+
+func make_draft(kid: String, pay_date: String, upto := "", only_mill := "") -> Dictionary:
+	## A fresh, unsaved payment for one khata, with one row per member / mill / post.
+	var from := next_work_from(kid)
+	if upto == "":
+		upto = Calc.default_upto(pay_date, from)
+	if from == "":
+		from = Dates.first_of_month(upto)
+	var d := {
+		"khata_id": kid,
+		"date": pay_date,
+		"from": from,
+		"upto": upto,
+		"from_locked": String(khata(kid).get("paid_upto", "")) != "",
+		"rows": [],
+		"choice": "full",
+		"custom": 0,
+		"only_mill": only_mill,
+	}
+	rebuild_rows(d)
+	return d
+
+
+func rebuild_rows(d: Dictionary) -> void:
+	## Recreates rows for the khata's current posts, keeping any typed numbers.
+	var old := {}
+	for r in d.get("rows", []):
+		old[_row_key(r)] = r
+	var rows := []
+	for p in khata_members(d.khata_id):
+		for po in sorted_posts(p.id):
+			var r := _blank_row(p.id, po.mill_id, po.post, d)
+			var key := _row_key(r)
+			if old.has(key):
+				var o: Dictionary = old[key]
+				r.att = o.get("att", 0.0)
+				r.hr = o.get("hr", 0.0)
+				r.mode = o.get("mode", "normal")
+				if o.get("rate_custom", false):
+					r.rate = o.rate
+					r.rate_custom = true
+				if o.get("days_custom", false):
+					r.days = o.days
+					r.days_custom = true
+				var old_months := {}
+				for mo in o.get("months", []):
+					old_months[mo.ym] = mo
+				for mo in r.months:
+					if old_months.has(mo.ym):
+						mo.att = old_months[mo.ym].get("att", 0.0)
+			r.amount = Calc.row_amount(r)
+			rows.append(r)
+	d.rows = rows
+
+
+func _row_key(r: Dictionary) -> String:
+	return "%s|%s|%s" % [r.person_id, r.mill_id, r.post]
+
+
+func _blank_row(pid: String, mill_id: String, post: String, d: Dictionary) -> Dictionary:
+	var r := {
+		"person_id": pid,
+		"mill_id": mill_id,
+		"post": post,
+		"att": 0.0,
+		"hr": 0.0,
+		"rate": 0,
+		"rate_custom": false,
+		"mode": "normal",
+		"days": Calc.default_bm_days(d.from, d.upto),
+		"days_custom": false,
+		"months": [],
+		"amount": 0,
+	}
+	if post == "BM":
+		r.rate = salary_on(pid, d.date)
+		for mo in Dates.months_between(d.from, d.upto):
+			r.months.append({"ym": mo.ym, "days": mo.days, "salary": salary_on(pid, mo.from), "att": 0.0, "amount": 0, "from": mo.from, "upto": mo.upto})
+	else:
+		r.rate = mill_rate(mill_id, post, d.date)
+	return r
+
+
+func draft_hisab(d: Dictionary) -> Dictionary:
+	for r in d.rows:
+		r.amount = Calc.row_amount(r)
+		if r.post == "BM":
+			var amounts := Calc.month_amounts(r.months)
+			for i in r.months.size():
+				r.months[i].amount = amounts[i]
+	var h := Calc.hisab(settled_balance(d.khata_id), d.rows, open_entries(d.khata_id, d.date))
+	h.paid = Calc.paid_for_choice(h.due, d.get("choice", "full"), int(d.get("custom", 0)))
+	h.new_balance = h.due - h.paid
+	return h
+
+
+func validate_draft(d: Dictionary) -> String:
+	if not Dates.valid(d.from) or not Dates.valid(d.upto) or not Dates.valid(d.date):
+		return "err_bad_date"
+	if d.upto < d.from:
+		return "err_upto_before_from"
+	if d.upto > d.date:
+		return "err_upto_after_pay"
+	var last := last_payment(d.khata_id)
+	if not last.is_empty() and d.date < String(last.date):
+		return "err_pay_before_last"
+	return ""
+
+
+func commit_payment(d: Dictionary) -> Dictionary:
+	var err := validate_draft(d)
+	if err != "":
+		return {"error": err}
+	var k := khata(d.khata_id)
+	var h := draft_hisab(d)
+	var entries := open_entries(d.khata_id, d.date)
+	var rows := []
+	for r in d.rows:
+		if Calc.row_has_work(r):
+			var saved: Dictionary = r.duplicate(true)
+			saved.person_name = person(r.person_id).get("name", "")
+			saved.mill_name = mill(r.mill_id).get("name", "")
+			rows.append(saved)
+	var members := []
+	for p in khata_members(d.khata_id):
+		members.append({"id": p.id, "name": p.name})
+	var pay := {
+		"id": new_id("pay"),
+		"khata_id": d.khata_id,
+		"date": d.date,
+		"from": d.from,
+		"upto": d.upto,
+		"rows": rows,
+		"members": members,
+		"payee_name": khata_title(d.khata_id),
+		"earnings": h.earnings,
+		"prev_balance": h.prev_balance,
+		"kharchi": h.kharchi,
+		"count_kharchi": h.count_kharchi,
+		"advance": h.advance,
+		"payout": h.payout,
+		"received": h.received,
+		"adjust": h.adjust,
+		"due": h.due,
+		"paid": h.paid,
+		"new_balance": h.new_balance,
+		"choice": d.get("choice", "full"),
+		"entry_ids": [],
+		"prev_paid_upto": String(k.get("paid_upto", "")),
+		"created": int(Time.get_unix_time_from_system() * 1000) + randi() % 1000,
+	}
+	# Never earlier than the newest payment of this khata, so ordering stays right.
+	var last := last_payment(d.khata_id)
+	if not last.is_empty() and pay.created <= int(last.created):
+		pay.created = int(last.created) + 1
+	for e in entries:
+		e.payment_id = pay.id
+		pay.entry_ids.append(e.id)
+	k.paid_upto = d.upto
+	data.payments.append(pay)
+	save()
+	return pay
+
+
+func can_undo_payment(pay_id: String) -> bool:
+	var pay := payment(pay_id)
+	if pay.is_empty():
+		return false
+	var last := last_payment(pay.khata_id)
+	return not last.is_empty() and last.id == pay_id and not khata(pay.khata_id).get("archived", false)
+
+
+func undo_payment(pay_id: String) -> bool:
+	if not can_undo_payment(pay_id):
+		return false
+	var pay := payment(pay_id)
+	for e in data.entries:
+		if e.payment_id == pay_id:
+			e.payment_id = ""
+	khata(pay.khata_id).paid_upto = pay.prev_paid_upto
+	data.payments.erase(pay)
+	save()
+	return true
+
+
+func payments_list() -> Array:
+	var out: Array = data.payments.duplicate()
+	out.sort_custom(func(a, b): return a.date > b.date if a.date != b.date else a.created > b.created)
+	return out
+
+
+func payment_entries(pay: Dictionary) -> Array:
+	var out := []
+	for e in data.entries:
+		if e.payment_id == pay.id:
+			out.append(e)
+	out.sort_custom(func(a, b): return a.date < b.date if a.date != b.date else a.created < b.created)
+	return out
+
+
+# --------------------------------------------------------------------------
+# Export / import (one fixed file format)
+# --------------------------------------------------------------------------
+
+func export_text() -> String:
+	var wrapper := {
+		"app": "PayTrack",
+		"format": FORMAT,
+		"exported": Time.get_datetime_string_from_system(false, true),
+		"data": data,
+	}
+	return JSON.stringify(wrapper)
+
+
+func export_file_name() -> String:
+	return "PayTrack-%s.paytrack" % Dates.today()
+
+
+func mark_exported() -> void:
+	data.settings.last_export = Dates.today()
+	save()
+
+
+func parse_import(text: String) -> Dictionary:
+	## Returns {"data": ..., "summary": ...} or {"error": key}.
+	var parsed = JSON.parse_string(text)
+	if not (parsed is Dictionary) or parsed.get("app", "") != "PayTrack" or not (parsed.get("data") is Dictionary):
+		return {"error": "err_not_paytrack"}
+	if int(parsed.get("format", 0)) > FORMAT:
+		return {"error": "err_newer_format"}
+	if not _looks_valid(parsed.data):
+		return {"error": "err_not_paytrack"}
+	var incoming := normalize(parsed.data)
+	return {
+		"data": incoming,
+		"exported": parsed.get("exported", ""),
+		"summary": {
+			"mills": incoming.mills.size(),
+			"people": incoming.people.size(),
+			"entries": incoming.entries.size(),
+			"payments": incoming.payments.size(),
+		},
+		"local_newer": int(data.meta.get("updated", 0)) > int(incoming.meta.get("updated", 0)) and has_any_data(),
+	}
+
+
+func has_any_data() -> bool:
+	return not (data.mills.is_empty() and data.people.is_empty() and data.entries.is_empty())
+
+
+func apply_import(incoming: Dictionary) -> void:
+	if save_enabled:
+		_write_file(IMPORT_UNDO_PATH, JSON.stringify(data))
+	var keep_lang = data.settings.get("lang", "en")
+	data = incoming
+	data.settings.lang = keep_lang
+	data.settings.last_export = Dates.today()
+	if save_enabled:
+		_write_file(SAVE_PATH, JSON.stringify(data))
+	changed.emit()
+
+
+func can_undo_import() -> bool:
+	return save_enabled and FileAccess.file_exists(IMPORT_UNDO_PATH)
+
+
+func undo_import() -> bool:
+	if not can_undo_import():
+		return false
+	var parsed = JSON.parse_string(FileAccess.get_file_as_string(IMPORT_UNDO_PATH))
+	if not (parsed is Dictionary) or not _looks_valid(parsed):
+		return false
+	data = normalize(parsed)
+	_write_file(SAVE_PATH, JSON.stringify(data))
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(IMPORT_UNDO_PATH))
+	changed.emit()
+	return true
+
+
+func load_sample_data() -> void:
+	## Made-up names only – for trying the app.
+	data = empty_data()
+	data.settings.lang = Lang.lang if Lang else "en"
+	var today := Dates.today()
+	var start := Dates.first_of_previous_month(today)
+	var a := add_mill("Ganga Mill", 285, 420)
+	var b := add_mill("Kaveri Mill", 300, 400)
+	var m1 := add_person("Ramesh", [{"mill_id": a.id, "post": "BM"}], 32000)
+	var w1 := add_person("Kishan", [{"mill_id": a.id, "post": "F"}, {"mill_id": a.id, "post": "H"}])
+	var w2 := add_person("Mohan", [{"mill_id": a.id, "post": "F"}, {"mill_id": b.id, "post": "H"}])
+	var w3 := add_person("Hari", [{"mill_id": a.id, "post": "H"}])
+	var w4 := add_person("Sita", [{"mill_id": a.id, "post": "H"}])
+	var w5 := add_person("Gita", [{"mill_id": b.id, "post": "H"}])
+	var w6 := add_person("Raju", [{"mill_id": b.id, "post": "F"}, {"mill_id": b.id, "post": "H"}])
+	join_family(w3.id, w4.id)
+	for p in [m1, w1, w2, w3, w5, w6]:
+		set_khata_start(p.khata_id, start)
+	add_entry(w1.id, "kharchi", 500, Dates.add_days(today, -6))
+	add_entry(w1.id, "kharchi", 300, Dates.add_days(today, -2))
+	add_entry(w2.id, "advance", 20000, Dates.add_days(today, -10), "")
+	add_entry(w3.id, "kharchi", 1000, Dates.add_days(today, -3))
+	add_entry(w4.id, "kharchi", 400, today)
+	set_opening_balance(w5.khata_id, 8000)
+	save()

@@ -1,43 +1,49 @@
-"""Publish only public/paytrack using the owner's existing gh-track portfolio pipeline."""
+"""Publish build/web to theramlakhan.com/paytrack (folder public/paytrack of the
+portfolio repo). Only that folder is ever changed. Run after a Web export:
+    python3 tools/prepare_web.py && python3 tools/deploy.py
+"""
 from pathlib import Path
-import subprocess, shutil, sys
+import shutil, subprocess, sys
+
 ROOT = Path(__file__).resolve().parents[1]
-SITE = 'ramlakhanmadheshiya/ramlakhanmadheshiya.github.io'
-DEST = 'public/paytrack'
-WORK = ROOT / '.tools' / 'portfolio'
+SITE = "ramlakhanmadheshiya/ramlakhanmadheshiya.github.io"
+DEST = "public/paytrack"
+WORK = ROOT / ".tools" / "portfolio"
+
+
 def run(*args, cwd=ROOT):
-    return subprocess.check_output(args,cwd=cwd,text=True).strip()
-subprocess.check_call([sys.executable,str(ROOT/'tools/prepare_web.py')],cwd=ROOT)
-source = ROOT / 'build' / 'web'
-required = ['index.html','index.js','index.pck','index.wasm']
-if not all((source / name).is_file() for name in required):
-    sys.exit('Export Web first; missing required runtime files.')
+    return subprocess.check_output(args, cwd=cwd, text=True).strip()
+
+
+src = ROOT / "build" / "web"
+if not (src / "index.html").is_file() or not list(src.glob("paytrack-*.pck")):
+    sys.exit("Export Web and run tools/prepare_web.py first.")
 if not WORK.exists():
-    run('gh','repo','clone',SITE,str(WORK),'--','--depth','1')
-if run('git','status','--porcelain',cwd=WORK):
-    sys.exit('Portfolio inspection copy has local changes. Review them before deployment.')
-run('git','pull','--ff-only',cwd=WORK)
-if not (WORK / 'public' / 'ghtrack').is_dir() or not (WORK / '.github/workflows/deploy.yml').is_file():
-    sys.exit('Portfolio layout differs from inspected gh-track pipeline. Stop for review.')
+    run("gh", "repo", "clone", SITE, str(WORK), "--", "--depth", "1")
+if run("git", "status", "--porcelain", cwd=WORK):
+    sys.exit(f"{WORK} has local changes; review them first.")
+run("git", "pull", "--ff-only", cwd=WORK)
 target = WORK / DEST
-previous=[]
+# Keep the two newest older packs for browsers that still have the old page cached.
+keep = []
 if target.exists():
-    for path in sorted(target.glob("paytrack-*.pck"),key=lambda item:item.stat().st_mtime,reverse=True)[:2]:
-        previous.append((path.name,path.read_bytes()))
+    olds = sorted(target.glob("paytrack-*.pck"), key=lambda p: p.stat().st_mtime, reverse=True)[:2]
+    keep = [(p.name, p.read_bytes()) for p in olds]
     shutil.rmtree(target)
 target.mkdir(parents=True)
-for path in source.iterdir():
-    if path.is_file() and path.suffix in ['.html','.js','.wasm','.pck','.png','.svg']:
-        shutil.copy2(path,target / path.name)
-for name,data in previous:
-    if not (target/name).exists(): (target/name).write_bytes(data)
-run('git','add','--',DEST,cwd=WORK)
-changed = run('git','diff','--cached','--name-only',cwd=WORK).splitlines()
-if not changed: sys.exit('No changed PayTrack runtime files.')
-if not all(name.startswith(DEST+'/') for name in changed):
-    sys.exit('Refusing deployment: changes outside public/paytrack.')
-print('Reviewed path-scoped files:\n'+'\n'.join(changed),flush=True)
-run('git','commit','-m','Publish PayTrack fictional Web demo',cwd=WORK)
-run('git','push','origin','HEAD:main',cwd=WORK)
-print('Published runtime commit:',run('git','rev-parse','HEAD',cwd=WORK))
-print('Watch the existing Pages workflow before verifying https://theramlakhan.com/paytrack/')
+for p in src.iterdir():
+    if p.is_file() and p.suffix in (".html", ".js", ".wasm", ".pck", ".png", ".svg") and p.name != "index.pck":
+        shutil.copy2(p, target / p.name)
+for name, data in keep:
+    if not (target / name).exists():
+        (target / name).write_bytes(data)
+run("git", "add", "-A", "--", DEST, cwd=WORK)
+changed = run("git", "diff", "--cached", "--name-only", cwd=WORK).splitlines()
+if not changed:
+    sys.exit("Nothing changed.")
+if any(not c.startswith(DEST + "/") for c in changed):
+    sys.exit("Refusing: changes outside " + DEST)
+print("\n".join(changed))
+run("git", "commit", "-m", "Publish PayTrack web app", cwd=WORK)
+run("git", "push", "origin", "HEAD:main", cwd=WORK)
+print("Published. The site updates after the portfolio's Pages workflow finishes: https://theramlakhan.com/paytrack/")

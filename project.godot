@@ -1,17 +1,51 @@
+; Engine configuration file.
 config_version=5
 
 [application]
+
 config/name="PayTrack"
-config/icon="res://assets/icon.svg"
-run/main_scene="res://scenes/app_root.tscn"
+config/description="Labour payroll and kharchi ledger for mill contractors."
+config/version="1.0.0"
+run/main_scene="res://scenes/main.tscn"
 config/features=PackedStringArray("4.7", "GL Compatibility")
+config/icon="res://assets/icon/icon.svg"
+boot_splash/bg_color=Color(0.96, 0.96, 0.97, 1)
+boot_splash/show_image=false
+run/low_processor_mode=true
+
+[autoload]
+
+Lang="*res://scripts/core/lang.gd"
+DB="*res://scripts/core/store.gd"
 
 [display]
-window/size/viewport_width=1200
-window/size/viewport_height=800
-window/stretch/mode="disabled"
+
+window/size/viewport_width=390
+window/size/viewport_height=844
+window/size/window_width_override=430
+window/size/window_height_override=900
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+window/dpi/allow_hidpi=true
+window/handheld/orientation=6
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/paytrack_share/plugin.cfg")
+
+[gui]
+
+common/drop_mouse_on_gui_input_disabled=true
+theme/default_font_antialiasing=1
+theme/lcd_subpixel_layout=0
+
+[input_devices]
+
+pointing/emulate_touch_from_mouse=false
 
 [rendering]
+
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
-environment/defaults/default_clear_color=Color(0.96, 0.97, 0.98, 1)
+textures/vram_compression/import_etc2_astc=true
+environment/defaults/default_clear_color=Color(0.96, 0.96, 0.97, 1)
