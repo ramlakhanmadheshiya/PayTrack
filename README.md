@@ -4,10 +4,12 @@ Labour payroll for mill contractors: daily kharchi, advances, jama, family khata
 monthly payments with work periods. It replaces the diary + Excel mill sheets.
 Built with **Godot 4.7.2** (GDScript, Compatibility renderer), like Single Shot.
 
-- Android app (APK): built by GitHub Actions on every push and attached to the
-  [`latest` release](../../releases/tag/latest).
-- Web version: https://theramlakhan.com/paytrack/ (for trying the app; each browser keeps its own data).
-- iPad: same project, exported from this Mac with Xcode (see below).
+- **Web app**: https://theramlakhan.com/paytrack/ — rebuilt and published by GitHub Actions on every push.
+  Installable and offline (service worker). **iPad: Safari › Share › Add to Home Screen** (free, no App Store).
+- **Android APK download page**: https://theramlakhan.com/testsapp/ — the APK there is updated when a
+  commit message contains `[release]` (or Actions › Build PayTrack › Run workflow). Every push also attaches
+  the APK to this repo's private [`latest` release](../../releases/tag/latest).
+  All APKs are signed with the same key, so a new one installs over the old app and keeps the data.
 
 The full plan agreed with the owner is in [PLAN.md](PLAN.md).
 
@@ -65,7 +67,13 @@ The Android release key is `~/.android-keys/PayTrack-release.*`, backed up in
 `~/Desktop/Apps/Games/Backup Game/PayTrack/`, and stored as the repo secrets `ANDROID_KEYSTORE_*`.
 Never replace it: updates only install over the old app when signed with the same key.
 
-## iPad
+## Publishing
+
+CI pushes `build/web` to `public/paytrack` and `web/testsapp/` to `public/testsapp` of the portfolio repo
+(`tools/deploy.py`, deploy key secret `PORTFOLIO_DEPLOY_KEY`, backed up with the signing key). Nothing else
+in the portfolio is touched; its own Pages workflow then publishes the site.
+
+## iPad as a native app (optional, later)
 
 Add an iOS export preset in the Godot editor (bundle id `com.theramlakhan.paytrack`, your Apple team,
 icon `assets/icon/ios-1024.png`, "Files app access" on so exports appear in Files › PayTrack),
