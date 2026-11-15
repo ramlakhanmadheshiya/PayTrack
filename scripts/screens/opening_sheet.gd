@@ -23,12 +23,12 @@ func build() -> void:
 	body.add_child(UI.wrapped(UI.label(Lang.t("opening_help_long"), UI.S_SUB, UI.TEXT2)))
 	_holder = UI.vbox(12)
 	body.add_child(_holder)
-	_draw()
+	_show_fields()
 
 
-func _draw() -> void:
+func _show_fields() -> void:
 	UI.clear(_holder)
-	_holder.add_child(UI.segmented([Lang.t("none"), Lang.t("has_jama"), Lang.t("has_advance")], kind, func(i): kind = i; _draw()))
+	_holder.add_child(UI.segmented([Lang.t("none"), Lang.t("has_jama"), Lang.t("has_advance")], kind, func(i): kind = i; _show_fields()))
 	if kind > 0:
 		var c := UI.card()
 		var f := NumField.make(amount, Lang.t("opening_balance"), false, true, 130)

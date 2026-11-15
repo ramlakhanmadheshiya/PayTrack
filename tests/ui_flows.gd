@@ -138,13 +138,31 @@ func _run() -> void:
 	AddPersonSheet.open("Temp Person")
 	await wait()
 	aps = app.top_sheet()
-	aps.opening_kind = 1
-	aps.opening_amount = 500
+	_tap_segment(aps._amount_holder, 1)   # "Has jama", tapped like a finger would
+	await wait(3)
+	check(aps.opening_kind == 1, "starting balance toggle switches to jama")
+	check(_selected_segment(aps._amount_holder) == 1, "toggle shows jama selected")
+	var amt_field: NumField = null
+	for n in aps._amount_holder.find_children("*", "", true, false):
+		if n is NumField:
+			amt_field = n
+	check(amt_field != null, "amount box appears")
+	amt_field.set_value(500)
 	aps._save()
 	await wait(10)
 	var tp := DB.find_person_by_name("Temp Person")
 	check(DB.live_balance(tp.khata_id) == 500, "starting jama saved")
 	check(DB.can_delete_person(tp.id), "new person can be deleted")
+	OpeningSheet.open(tp.khata_id)
+	await wait()
+	var osh: OpeningSheet = app.top_sheet()
+	_tap_segment(osh._holder, 2)
+	await wait(3)
+	check(osh.kind == 2 and _selected_segment(osh._holder) == 2, "opening sheet toggle switches to advance")
+	osh.amount = 300
+	osh._save()
+	await wait(8)
+	check(DB.live_balance(tp.khata_id) == -300, "starting advance saved")
 	check(DB.delete_person(tp.id), "person deleted")
 	app.go_tab_root("people")
 	await wait(4)
@@ -331,3 +349,37 @@ func _run() -> void:
 
 	print("UI flows: %d checks, %d failed" % [checks, fails])
 	get_tree().quit(1 if fails > 0 else 0)
+
+
+func _segments(holder: Node) -> Array:
+	## The segment buttons of the first segmented control under holder.
+	for n in holder.find_children("*", "HBoxContainer", true, false):
+		var taps := []
+		for c in n.get_children():
+			if c is Tap:
+				taps.append(c)
+		if taps.size() == 3:
+			return taps
+	return []
+
+
+func _tap_segment(holder: Node, i: int) -> void:
+	var t: Tap = _segments(holder)[i]
+	var down := InputEventMouseButton.new()
+	down.button_index = MOUSE_BUTTON_LEFT
+	down.pressed = true
+	down.position = t.size / 2
+	down.global_position = t.get_global_rect().get_center()
+	t._gui_input(down)
+	var up := down.duplicate()
+	up.pressed = false
+	t._gui_input(up)
+
+
+func _selected_segment(holder: Node) -> int:
+	var segs := _segments(holder)
+	for i in segs.size():
+		var st = segs[i].style_normal
+		if st is StyleBoxFlat and st.bg_color == UI.CARD:
+			return i
+	return -1

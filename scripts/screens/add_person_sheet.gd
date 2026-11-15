@@ -29,9 +29,6 @@ func build() -> void:
 	body.add_child(_err)
 	body.add_child(UI.spacer(4))
 	body.add_child(UI.label(Lang.t("opening_balance"), UI.S_CAP, UI.TEXT2, 600))
-	body.add_child(UI.segmented([Lang.t("none"), Lang.t("has_jama"), Lang.t("has_advance")], opening_kind, func(i):
-		opening_kind = i
-		_rebuild_amount()))
 	_amount_holder = UI.vbox(8)
 	body.add_child(_amount_holder)
 	_rebuild_amount()
@@ -46,7 +43,11 @@ func _open_keyboard() -> void:
 
 
 func _rebuild_amount() -> void:
+	## The toggle is redrawn too, so the chosen option shows as selected.
 	UI.clear(_amount_holder)
+	_amount_holder.add_child(UI.segmented([Lang.t("none"), Lang.t("has_jama"), Lang.t("has_advance")], opening_kind, func(i):
+		opening_kind = i
+		_rebuild_amount()))
 	if opening_kind == 0:
 		return
 	var c := UI.card()

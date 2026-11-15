@@ -57,7 +57,9 @@ func _gui_input(ev: InputEvent) -> void:
 			_apply()
 			if enabled and ev.global_position.distance_to(_start) < SLOP and Rect2(Vector2.ZERO, size).has_point(ev.position):
 				tapped.emit()
-				accept_event()
+				# The tap may have rebuilt the screen and removed this button.
+				if is_inside_tree():
+					accept_event()
 	elif ev is InputEventMouseMotion and _down:
 		if ev.global_position.distance_to(_start) >= SLOP:
 			_down = false
