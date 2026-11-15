@@ -63,7 +63,8 @@ func _fill() -> void:
 			kids.append(kid)
 		members_here[kid].append(p)
 	kids.sort_custom(func(a, c): return DB.khata_title(a).naturalnocasecmp_to(DB.khata_title(c)) < 0)
-	_list.add_child(UI.section_title(Lang.t("workers_n", [workers.size()])))
+	# Add worker sits next to the label, so it is reachable without scrolling 200 rows.
+	_list.add_child(UI.section_title(Lang.t("workers_n", [workers.size()]), UI.small_button(Lang.t("add_worker"), "tinted", func(): AddWorkerSheet.open(mill_id), "plus")))
 	var c := UI.card()
 	var rows := []
 	for kid in kids:
@@ -91,7 +92,8 @@ func _fill() -> void:
 		else:
 			var pid: String = ppl[0].id
 			rows.append(UI.row(ppl[0].name, sub, badges, func(): Screens.open_person(pid), true, UI.avatar(ppl[0].name, 36)))
-	rows.append(UI.row(Lang.t("add_worker"), "", null, func(): AddWorkerSheet.open(mill_id), false, Icons.make("plus", UI.ACCENT, 22)))
+	if rows.is_empty():
+		rows.append(UI.row(Lang.t("no_workers"), "", null, Callable(), false))
 	UI.add_rows(c, rows)
 	_list.add_child(UI.margin(c, 16, 0, 16, 0))
 

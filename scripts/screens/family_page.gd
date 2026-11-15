@@ -31,7 +31,7 @@ func build(b: VBoxContainer) -> void:
 	acts.add_child(UI.expand(UI.button(Lang.t("pay_family"), "primary", func(): Screens.start_pay_khata(khata_id), "pay")))
 	b.add_child(UI.margin(acts, 16, 12, 16, 0))
 
-	b.add_child(UI.section_title(Lang.t("members_n", [DB.khata_members(khata_id).size()])))
+	b.add_child(UI.section_title(Lang.t("members_n", [DB.khata_members(khata_id).size()]), UI.small_button(Lang.t("add"), "tinted", _add_member, "plus")))
 	var c := UI.card()
 	var rows := []
 	for p in DB.khata_members(khata_id):
@@ -39,7 +39,6 @@ func build(b: VBoxContainer) -> void:
 		var head: bool = p.id == k.payee_id
 		var sub := (Lang.t("payee") + " · " if head else "") + Screens.person_work_summary(pid)
 		rows.append(UI.row(p.name, sub, null, func(): Screens.open_person(pid), true, UI.avatar(p.name, 36, UI.ACCENT_SOFT if head else UI.FILL, UI.ACCENT if head else UI.TEXT2)))
-	rows.append(UI.row(Lang.t("add_family_member"), "", null, _add_member, false, Icons.make("plus", UI.ACCENT, 22)))
 	UI.add_rows(c, rows)
 	b.add_child(UI.margin(c, 16, 0, 16, 0))
 	Screens.history(b, khata_id)
