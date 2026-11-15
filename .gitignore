@@ -4,7 +4,7 @@ build/
 .DS_Store
 *.tmp
 addons/paytrack_share/bin/
-android/
+/android/
 plugins_src/paytrack_share/build/
 plugins_src/paytrack_share/.gradle/
 *.paytrack
