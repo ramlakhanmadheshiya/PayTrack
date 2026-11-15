@@ -62,7 +62,7 @@ jobs:
         run: godot --headless --path . --import || true
 
       - name: Run tests
-        run: godot --headless --path . --script tests/test_core.gd
+        run: GODOT=godot ./tests/run_all.sh
 
       - name: Configure Android signing
         env:

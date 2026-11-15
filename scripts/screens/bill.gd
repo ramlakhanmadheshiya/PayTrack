@@ -80,10 +80,6 @@ static func make(pay: Dictionary, k := 1.0) -> PanelContainer:
 	if int(pay.kharchi) > 0:
 		v.add_child(_kv(Lang.t("kharchi_n", [int(pay.count_kharchi)]), "− ₹" + Money.group(pay.kharchi), k))
 		lines.append(v.get_child(v.get_child_count() - 1))
-		var grid := GridContainer.new()
-		grid.columns = 2 if k < 1.2 and false else 2
-		grid.add_theme_constant_override("h_separation", S.call(24))
-		grid.add_theme_constant_override("v_separation", S.call(2))
 		var col := UI.vbox(S.call(2))
 		for e in entries:
 			if e.type != "kharchi":

@@ -101,7 +101,7 @@ static func entry_row(e: Dictionary, show_person := true, cb: Callable = Callabl
 	if e.note != "" and e.note != "balance_from_member":
 		sub += " · " + e.note
 	if e.type == "adjust":
-		title = Lang.t("balance_carried", [name]) if show_person or true else title
+		title = Lang.t("balance_carried", [name])
 		sub = Lang.day_label(e.date)
 	var sign := Calc.entry_effect(e)
 	var amt := UI.label(("+" if sign > 0 else "−") + "₹" + Money.group(absi(e.amount)), UI.S_BODY, UI.GREEN if sign > 0 else UI.TEXT, 600, true)
