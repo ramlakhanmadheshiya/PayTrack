@@ -27,4 +27,6 @@ func _initialize() -> void:
 	_render("res://assets/icon/icon.svg", 1024, "res://assets/icon/icon-1024.png")
 	# iOS app icon must be square with no transparency; the system rounds the corners.
 	_render("res://assets/icon/foreground.svg", 1024, "res://assets/icon/ios-1024.png", Color("#EEF3FC"), "1.12")
+	for n in [144, 180, 512]:
+		_render("res://assets/icon/foreground.svg", n, "res://assets/web/icon-%d.png" % n, Color("#EEF3FC"), "1.12")
 	quit()

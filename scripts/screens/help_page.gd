@@ -9,7 +9,7 @@ func _init() -> void:
 
 func build(b: VBoxContainer) -> void:
 	title = Lang.t("how_it_works")
-	for i in range(1, 9):
+	for i in range(1, 10):
 		var c := UI.card(16)
 		var v := UI.card_body(c)
 		v.add_theme_constant_override("separation", 6)

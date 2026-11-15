@@ -2,12 +2,18 @@ name: Build PayTrack
 
 # Tests the payroll engine, then builds a signed Android APK and the web version.
 # The APK is attached to the "latest" GitHub Release of this repo (download it on the phone).
-# The web build is published to theramlakhan.com/paytrack with tools/deploy.py (run on the Mac).
+# The web build is published to theramlakhan.com/paytrack (portfolio repo, folder public/paytrack)
+# with the PORTFOLIO_DEPLOY_KEY deploy key.
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      release:
+        description: "Also update the APK on theramlakhan.com/testsapp"
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -145,6 +151,24 @@ jobs:
           gh release create latest build/android/PayTrack.apk \
             --title "PayTrack 1.0.${{ github.run_number }}" \
             --notes "Android app. On the phone: open this page, download PayTrack.apk, open it and allow install. Updates install over the old app and keep your data."
+
+      - name: Publish web app to theramlakhan.com/paytrack
+        env:
+          DEPLOY_KEY: ${{ secrets.PORTFOLIO_DEPLOY_KEY }}
+          PAYTRACK_VERSION: 1.0.${{ github.run_number }}
+          # The APK on the website (≈50 MB in the portfolio's git history each time) is only
+          # updated for "[release]" commits or manual runs; the web app updates every push.
+          PUBLISH_APK: ${{ ((github.event_name == 'workflow_dispatch' && inputs.release) || contains(github.event.head_commit.message, '[release]')) && '1' || '0' }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$DEPLOY_KEY" > ~/.ssh/portfolio
+          chmod 600 ~/.ssh/portfolio
+          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/portfolio -o IdentitiesOnly=yes"
+          git clone --depth 1 git@github.com:ramlakhanmadheshiya/ramlakhanmadheshiya.github.io.git "$RUNNER_TEMP/portfolio"
+          git -C "$RUNNER_TEMP/portfolio" config user.name "PayTrack CI"
+          git -C "$RUNNER_TEMP/portfolio" config user.email "paytrack-ci@users.noreply.github.com"
+          PORTFOLIO_DIR="$RUNNER_TEMP/portfolio" python3 tools/deploy.py
 
       - uses: actions/upload-artifact@v4
         with:

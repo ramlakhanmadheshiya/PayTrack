@@ -34,6 +34,8 @@ static func setup() -> void:
 				document.body.appendChild(a); a.click(); a.remove();
 			}
 		};
+		// Ask the browser to keep PayTrack's data (not clear it to save space).
+		try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
 		window.ptPick = function(cb) {
 			const input = document.createElement('input');
 			input.type = 'file';

@@ -171,6 +171,8 @@ const EN := {
 	"help_t6": "After the hisab", "help_b6": "Pay full, pay part (₹), or keep it as jama. If the amount is negative, the advance left is carried forward and cut next time.",
 	"help_t7": "Rates and salaries", "help_b7": "When rates or a salary change, add the new one with a start date. Old payments never change.",
 	"help_t8": "Backup and iPad", "help_b8": "Data stays on this device. Export a backup often. To see the same data on your iPad, export on the phone and import on the iPad.",
+	"help_t9": "Install on iPad (free)", "help_b9": "Open theramlakhan.com/paytrack in Safari, tap Share, then Add to Home Screen. PayTrack opens full screen like an app and works without internet. Keep using it from the Home Screen icon so the data stays.",
+	"install_title": "Install on this iPad", "install_body": "In Safari tap Share, then Add to Home Screen. Then open PayTrack from its icon.",
 }
 
 const HI := {
@@ -332,4 +334,6 @@ const HI := {
 	"help_t6": "हिसाब के बाद", "help_b6": "पूरा दें, कुछ दें (₹), या जमा रखें। रकम माइनस में हो तो बाकी एडवांस आगे जाएगा और अगली बार कटेगा।",
 	"help_t7": "रेट और तनख्वाह", "help_b7": "रेट या तनख्वाह बदले तो नई रकम तारीख के साथ जोड़ें। पुरानी पगार कभी नहीं बदलती।",
 	"help_t8": "बैकअप और iPad", "help_b8": "डेटा इसी डिवाइस में है। बार-बार बैकअप लें। iPad पर वही डेटा देखने के लिए फ़ोन में एक्सपोर्ट और iPad में इम्पोर्ट करें।",
+	"help_t9": "iPad पर इंस्टॉल (मुफ़्त)", "help_b9": "Safari में theramlakhan.com/paytrack खोलें, Share दबाएँ, फिर Add to Home Screen। PayTrack ऐप की तरह पूरी स्क्रीन पर खुलेगा और बिना इंटरनेट भी चलेगा। डेटा बना रहे इसलिए हमेशा Home Screen के आइकन से खोलें।",
+	"install_title": "इस iPad पर इंस्टॉल करें", "install_body": "Safari में Share दबाएँ, फिर Add to Home Screen। फिर PayTrack उसके आइकन से खोलें।",
 }
