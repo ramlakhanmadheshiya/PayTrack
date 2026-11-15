@@ -513,10 +513,11 @@ static func switch(on: bool, cb: Callable) -> Control:
 
 
 static func search_field(placeholder: String, text: String, cb: Callable) -> TextField:
-	## Search box typed with the in-app keyboard; cb(text) on every key.
+	## Search box typed with the in-app keyboard; cb(text) once typing pauses,
+	## so long lists are not rebuilt on every key.
 	var f := TextField.make(text, placeholder, placeholder, "search")
 	f.capitalize_words = false
-	f.text_changed.connect(cb)
+	f.text_settled.connect(cb)
 	return f
 
 

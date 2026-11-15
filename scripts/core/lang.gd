@@ -96,3 +96,10 @@ func day_label(s: String) -> String:
 	if s == Dates.add_days(today, -1):
 		return t("yesterday")
 	return date_smart(s)
+
+
+func month_ym(ym: String) -> String:
+	## "2026-10" → "Oct 2026"
+	if ym.length() < 7:
+		return ym
+	return "%s %s" % [month_short(int(ym.substr(5, 2))), ym.substr(0, 4)]

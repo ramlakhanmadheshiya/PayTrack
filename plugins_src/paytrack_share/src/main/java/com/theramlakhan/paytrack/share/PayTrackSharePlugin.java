@@ -3,7 +3,12 @@ package com.theramlakhan.paytrack.share;
 import android.app.Activity;
 import android.content.Intent;
 import android.database.Cursor;
+import android.content.ContentResolver;
+import android.content.ContentValues;
 import android.net.Uri;
+import android.os.Build;
+import android.os.Environment;
+import android.provider.MediaStore;
 import android.provider.OpenableColumns;
 
 import androidx.annotation.NonNull;
@@ -15,6 +20,7 @@ import org.godotengine.godot.plugin.SignalInfo;
 import org.godotengine.godot.plugin.UsedByGodot;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -82,6 +88,47 @@ public class PayTrackSharePlugin extends GodotPlugin {
 		}
 	}
 
+	/** Copies a file from the app's storage into the phone's Downloads folder. */
+	@UsedByGodot
+	public boolean saveToDownloads(String path, String name, String mime) {
+		final Activity activity = getActivity();
+		if (activity == null) {
+			error = "no activity";
+			return false;
+		}
+		try {
+			OutputStream os;
+			if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+				ContentResolver cr = activity.getContentResolver();
+				ContentValues v = new ContentValues();
+				v.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
+				v.put(MediaStore.MediaColumns.MIME_TYPE, mime);
+				v.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/PayTrack");
+				Uri uri = cr.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
+				if (uri == null) {
+					error = "save: no uri";
+					return false;
+				}
+				os = cr.openOutputStream(uri);
+			} else {
+				File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "PayTrack");
+				dir.mkdirs();
+				os = new FileOutputStream(new File(dir, name));
+			}
+			try (InputStream in = new FileInputStream(path); OutputStream out = os) {
+				byte[] buf = new byte[64 * 1024];
+				int n;
+				while ((n = in.read(buf)) > 0) {
+					out.write(buf, 0, n);
+				}
+			}
+			return true;
+		} catch (Exception e) {
+			error = "save: " + e;
+			return false;
+		}
+	}
+
 	@UsedByGodot
 	public boolean pickFile() {
 		final Activity activity = getActivity();
@@ -112,7 +159,7 @@ public class PayTrackSharePlugin extends GodotPlugin {
 		}
 		Activity activity = getActivity();
 		if (activity == null) {
-			emitSignal("pick_failed", "no activity");
+			runOnRenderThread(() -> emitSignal("pick_failed", "no activity"));
 			return;
 		}
 		Uri uri = data.getData();
@@ -135,9 +182,12 @@ public class PayTrackSharePlugin extends GodotPlugin {
 					os.write(buf, 0, n);
 				}
 			}
-			emitSignal("file_picked", out.getAbsolutePath());
+			final String picked = out.getAbsolutePath();
+			// Signals go to the game thread, not Android's UI thread.
+			runOnRenderThread(() -> emitSignal("file_picked", picked));
 		} catch (Exception e) {
-			emitSignal("pick_failed", e.toString());
+			final String msg = e.toString();
+			runOnRenderThread(() -> emitSignal("pick_failed", msg));
 		}
 	}
 }

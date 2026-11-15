@@ -7,8 +7,8 @@ static func root_page(tab: String) -> Page:
 	match tab:
 		"home":
 			return HomePage.new()
-		"mills":
-			return MillsPage.new()
+		"salary":
+			return SalaryPage.new()
 		"people":
 			return PeoplePage.new()
 		"balances":
@@ -38,9 +38,7 @@ static func open_khata(kid: String) -> void:
 
 
 static func open_mill(mid: String) -> void:
-	var p := MillPage.new()
-	p.mill_id = mid
-	UI.app.push(p)
+	MillEditSheet.open(mid)
 
 
 static func open_payment(pay_id: String) -> void:
@@ -100,7 +98,7 @@ static func khata_row(kid: String, cb: Callable, show_balance := true) -> Contro
 		sub = Lang.t("family_with", [DB.khata_subtitle(kid)])
 	else:
 		sub = person_work_summary(DB.khata(kid).payee_id)
-	var right: Control = UI.balance_label(DB.live_balance(kid)) if show_balance else null
+	var right: Control = UI.balance_label(DB.balance(kid)) if show_balance else null
 	return UI.row(title, sub, right, cb, true, UI.avatar(DB.khata_title(kid), 38))
 
 
@@ -135,7 +133,7 @@ static func period_text(from: String, upto: String) -> String:
 
 
 static func balance_card(kid: String) -> Control:
-	var bal := DB.live_balance(kid)
+	var bal := DB.balance(kid)
 	var col := UI.GREEN if bal > 0 else (UI.RED if bal < 0 else UI.TEXT2)
 	var soft := UI.GREEN_SOFT if bal > 0 else (UI.RED_SOFT if bal < 0 else UI.CARD)
 	var p := PanelContainer.new()
@@ -146,12 +144,9 @@ static func balance_card(kid: String) -> Control:
 	v.add_child(UI.label(Money.rs(absi(bal)), UI.S_MONEY_BIG, col if bal != 0 else UI.TEXT, 700, true))
 	var upto: String = DB.khata(kid).get("paid_upto", "")
 	var info := Lang.t("work_paid_upto", [Lang.date_full(upto)]) if upto != "" else Lang.t("not_paid_yet")
-	var given := 0
-	for e in DB.open_entries(kid):
-		if Calc.entry_effect(e) < 0:
-			given += e.amount
-	if given > 0:
-		info += "  ·  " + Lang.t("taken_since", [Money.group(given)])
+	var kh := DB.open_kharchi(kid)
+	if kh > 0:
+		info += "\n" + Lang.t("kharchi_open", [Money.group(kh)])
 	v.add_child(UI.wrapped(UI.label(info, UI.S_CAP, UI.TEXT2, 500)))
 	p.add_child(v)
 	return p

@@ -1,8 +1,9 @@
 class_name EntrySheet
 extends Sheet
-## Give kharchi / advance / jama payout, or note money received. Also edits an entry.
+## Give kharchi or advance, or note jama (money they give back to you).
+## Also edits an entry. (Old "jama paid" entries still open and edit.)
 
-const TYPES := ["kharchi", "advance", "payout", "received"]
+const TYPES := ["kharchi", "advance", "received"]
 
 var person_id := ""
 var entry_id := ""
@@ -43,12 +44,15 @@ func _rebuild() -> void:
 		body.add_child(info)
 	# Type.
 	if type != "adjust":
+		var types: Array = TYPES.duplicate()
+		if type == "payout":
+			types.append("payout")
 		var labels := []
-		for t in TYPES:
+		for t in types:
 			labels.append(Lang.entry_type(t))
-		body.add_child(UI.segmented(labels, TYPES.find(type), func(i):
+		body.add_child(UI.segmented(labels, types.find(type), func(i):
 			if _locked: return
-			type = TYPES[i]
+			type = types[i]
 			_rebuild()))
 		body.add_child(UI.wrapped(UI.label(Lang.t("type_help_" + type), UI.S_CAP, UI.TEXT2)))
 	# Person.
@@ -63,7 +67,10 @@ func _rebuild() -> void:
 	var p := DB.person(person_id)
 	var pc := UI.card()
 	var k := DB.khata_of(person_id)
-	var sub := UI.balance_text(DB.live_balance(k.id))
+	var sub := UI.balance_text(DB.balance(k.id))
+	var kh := DB.open_kharchi(k.id)
+	if kh > 0:
+		sub += " · " + Lang.t("kharchi_open", [Money.group(kh)])
 	if DB.is_family(k.id):
 		sub = Lang.t("family_of", [DB.khata_title(k.id)]) + " · " + sub
 	UI.add_rows(pc, [UI.row(p.name, sub, Lang.t("change") if entry_id == "" else "", (func(): person_id = ""; _rebuild()) if entry_id == "" else Callable(), false, UI.avatar(p.name, 40))])

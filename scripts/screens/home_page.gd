@@ -1,6 +1,9 @@
 class_name HomePage
 extends Page
-## Today: big Kharchi / Pay actions, balances at a glance, today's entries.
+## Home: Kharchi / Advance / Jama / Pay, then every transaction, newest first.
+
+var shown := 60
+var _list: VBoxContainer
 
 
 func _init() -> void:
@@ -15,6 +18,10 @@ func title_accessory() -> Control:
 	return seg
 
 
+func nav_right() -> Control:
+	return UI.icon_button("history", func(): UI.app.push(ActivityPage.new()))
+
+
 func build(b: VBoxContainer) -> void:
 	title = Lang.t("app_name")
 	var today := Dates.today()
@@ -27,55 +34,62 @@ func build(b: VBoxContainer) -> void:
 
 	_backup_banner(b)
 
-	# Two big actions.
-	var actions := UI.hbox(12)
-	actions.add_child(_action_tile("kharchi", Lang.t("add_kharchi"), Lang.t("add_kharchi_sub"), UI.ACCENT, func(): Screens.open_entry_sheet()))
-	actions.add_child(_action_tile("pay", Lang.t("pay"), Lang.t("pay_sub"), Color("#0F7B6C"), func(): Screens.start_pay_someone()))
-	b.add_child(UI.margin(actions, 16, 0, 16, 0))
+	# Four actions: give kharchi, give advance, take jama, pay.
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 12)
+	grid.add_theme_constant_override("v_separation", 12)
+	grid.add_child(_action_tile("kharchi", Lang.t("add_kharchi"), Lang.t("add_kharchi_sub"), UI.ACCENT, func(): Screens.open_entry_sheet("", "", "kharchi")))
+	grid.add_child(_action_tile("rupee", Lang.t("add_advance"), Lang.t("add_advance_sub"), Color("#C2410C"), func(): Screens.open_entry_sheet("", "", "advance")))
+	grid.add_child(_action_tile("import", Lang.t("add_jama"), Lang.t("add_jama_sub"), Color("#15803D"), func(): Screens.open_entry_sheet("", "", "received")))
+	grid.add_child(_action_tile("pay", Lang.t("pay"), Lang.t("pay_sub"), Color("#0F7B6C"), func(): Screens.start_pay_someone()))
+	b.add_child(UI.margin(grid, 16, 0, 16, 0))
 
-	# Balances at a glance.
-	var t: Dictionary = DB.totals()
-	var glance := UI.hbox(12)
-	glance.add_child(_stat(Lang.t("jama_with_you"), t.jama, UI.GREEN, func(): _open_balances(0)))
-	glance.add_child(_stat(Lang.t("advance_out"), t.advance, UI.RED, func(): _open_balances(1)))
-	b.add_child(UI.margin(glance, 16, 12, 16, 0))
+	# Every transaction, newest first, a day at a time.
+	_list = UI.vbox(0)
+	b.add_child(_list)
+	_fill_history()
 
-	# Today.
-	var entries: Array = DB.entries_on(today)
-	var total := 0
-	for e in entries:
-		total += int(e.amount) if Calc.entry_effect(e) < 0 else 0
-	b.add_child(UI.section_title(Lang.t("today"), UI.label(Lang.t("given_total", [Money.group(total)]) if not entries.is_empty() else "", UI.S_CAP, UI.TEXT2, 600, true)))
-	var c := UI.card()
-	if entries.is_empty():
-		var l := UI.wrapped(UI.label(Lang.t("no_entries_today"), UI.S_SUB, UI.TEXT2))
-		UI.card_body(c).add_child(UI.margin(l, 16, 16, 16, 16))
-	else:
+
+func _fill_history() -> void:
+	UI.clear(_list)
+	var items := []
+	for e in DB.data.entries:
+		if e.type != "adjust":
+			items.append({"date": e.date, "created": int(e.created), "e": e})
+	for p in DB.data.payments:
+		items.append({"date": p.date, "created": int(p.created), "p": p})
+	items.sort_custom(func(a, c): return a.date > c.date if a.date != c.date else a.created > c.created)
+	if items.is_empty():
+		_list.add_child(UI.section_title(Lang.t("transactions")))
+		var c := UI.card()
+		UI.card_body(c).add_child(UI.margin(UI.wrapped(UI.label(Lang.t("no_transactions"), UI.S_SUB, UI.TEXT2)), 16, 16, 16, 16))
+		_list.add_child(UI.margin(c, 16, 0, 16, 0))
+		return
+	var n := mini(shown, items.size())
+	var i := 0
+	while i < n:
+		var d: String = items[i].date
 		var rows := []
-		for e in entries:
-			var id: String = e.id
-			rows.append(Screens.entry_row(e, true, func(): Screens.open_entry_sheet("", id)))
+		var given := 0
+		while i < n and items[i].date == d:
+			var it: Dictionary = items[i]
+			if it.has("e"):
+				var e: Dictionary = it.e
+				var id: String = e.id
+				if Calc.entry_effect(e) < 0:
+					given += int(e.amount)
+				rows.append(Screens.entry_row(e, true, func(): Screens.open_entry_sheet("", id)))
+			else:
+				given += int(it.p.paid)
+				rows.append(PaymentsPage.payment_row(it.p))
+			i += 1
+		_list.add_child(UI.section_title(Lang.day_label(d), UI.label(Lang.t("given_total", [Money.group(given)]) if given > 0 else "", UI.S_CAP, UI.TEXT2, 600, true)))
+		var c := UI.card()
 		UI.add_rows(c, rows)
-	b.add_child(UI.margin(c, 16, 0, 16, 0))
-
-	# Recent payments.
-	var pays: Array = DB.payments_list()
-	if not pays.is_empty():
-		b.add_child(UI.section_title(Lang.t("recent_payments"), UI.link(Lang.t("see_all"), func(): UI.app.push(PaymentsPage.new()), UI.ACCENT, UI.S_SUB)))
-		var pc := UI.card()
-		var rows2 := []
-		for i in mini(4, pays.size()):
-			rows2.append(PaymentsPage.payment_row(pays[i]))
-		UI.add_rows(pc, rows2)
-		b.add_child(UI.margin(pc, 16, 0, 16, 0))
-
-
-func _open_balances(filter: int) -> void:
-	UI.app.switch_tab("balances")
-	var p = UI.app.top_page()
-	if p is BalancesPage:
-		p.filter = filter
-		p.refresh()
+		_list.add_child(UI.margin(c, 16, 0, 16, 0))
+	if items.size() > shown:
+		_list.add_child(UI.margin(UI.button(Lang.t("show_more"), "secondary", func(): shown += 60; _fill_history()), 16, 14, 16, 0))
 
 
 func _action_tile(icon: String, title_text: String, sub: String, col: Color, cb: Callable) -> Control:
@@ -84,7 +98,7 @@ func _action_tile(icon: String, title_text: String, sub: String, col: Color, cb:
 	var sp := UI.pad(UI.box(col.darkened(0.15), 18), 16, 16)
 	t.set_styles(s, sp, UI.pad(UI.box(col.darkened(0.06), 18), 16, 16))
 	t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	t.custom_minimum_size.y = 118
+	t.custom_minimum_size.y = 96
 	var v := UI.vbox(4)
 	var circle := PanelContainer.new()
 	circle.add_theme_stylebox_override("panel", UI.box(Color(1, 1, 1, 0.2), 20))
@@ -98,18 +112,6 @@ func _action_tile(icon: String, title_text: String, sub: String, col: Color, cb:
 	v.get_child(1).size_flags_vertical = Control.SIZE_EXPAND_FILL
 	v.add_child(UI.label(title_text, UI.S_TITLE - 2, Color.WHITE, 700))
 	v.add_child(UI.ellipsis(UI.label(sub, UI.S_CAP, Color(1, 1, 1, 0.85), 500)))
-	t.add_child_ignoring(v)
-	t.tapped.connect(cb)
-	return t
-
-
-func _stat(label_text: String, amount: int, col: Color, cb: Callable) -> Control:
-	var t := Tap.new()
-	t.set_styles(UI.pad(UI.box(UI.CARD, 16), 16, 12), UI.pad(UI.box(UI.FILL_PRESSED, 16), 16, 12), UI.pad(UI.box(Color("#FAFAFC"), 16), 16, 12))
-	t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var v := UI.vbox(2)
-	v.add_child(UI.ellipsis(UI.label(label_text, UI.S_CAP, UI.TEXT2, 600)))
-	v.add_child(UI.label(Money.rs(amount), UI.S_TITLE, col if amount != 0 else UI.TEXT3, 700, true))
 	t.add_child_ignoring(v)
 	t.tapped.connect(cb)
 	return t
@@ -156,7 +158,7 @@ func _welcome(b: VBoxContainer) -> void:
 		h.add_child(UI.wrapped(UI.label(s[1], UI.S_SUB, UI.TEXT)))
 		v.add_child(h)
 	v.add_child(UI.spacer(6))
-	v.add_child(UI.button(Lang.t("add_first_mill"), "primary", func(): UI.app.switch_tab("mills"); MillEditSheet.open(""), "plus"))
+	v.add_child(UI.button(Lang.t("add_first_mill"), "primary", func(): UI.app.switch_tab("people"); MillEditSheet.open(""), "plus"))
 	v.add_child(UI.button(Lang.t("import_backup"), "secondary", func(): Platform.import_backup(), "import"))
 	v.add_child(UI.button(Lang.t("try_sample"), "plain", func(): UI.app.confirm(Lang.t("try_sample"), Lang.t("sample_body"), Lang.t("load_sample"), func(): DB.load_sample_data(); UI.app.toast(Lang.t("sample_loaded")))))
 	b.add_child(UI.margin(c, 16, 0, 16, 0))

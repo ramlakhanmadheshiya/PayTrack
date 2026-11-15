@@ -9,14 +9,16 @@ var mill_id := ""
 var posts: Array = []
 var salary := 0.0
 var on_done: Callable
+var preset: Array = []     # posts ticked when a mill is chosen (e.g. ["BM"] for Add master)
 var _err: Label
 
 
-static func open(pid: String, mid := "", cb: Callable = Callable()) -> void:
+static func open(pid: String, mid := "", cb: Callable = Callable(), preset_posts: Array = []) -> void:
 	var s := WorkSheet.new(Lang.t("work_at_mill"), Lang.t("save"))
 	s.person_id = pid
 	s.mill_id = mid
 	s.on_done = cb
+	s.preset = preset_posts
 	s.action_cb = s._save
 	if mid != "":
 		s.posts = DB.posts_at(pid, mid)
@@ -43,6 +45,8 @@ func build() -> void:
 			rows.append(UI.row(m.name, sub, null, func():
 				mill_id = mid
 				posts = DB.posts_at(person_id, mid)
+				if posts.is_empty():
+					posts = preset.duplicate()
 				build(), true, Icons.make("mill", UI.ACCENT, 22)))
 		if rows.is_empty():
 			body.add_child(UI.wrapped(UI.label(Lang.t("no_mills_for_work"), UI.S_SUB, UI.TEXT2)))

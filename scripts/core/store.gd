@@ -32,6 +32,8 @@ static func empty_data() -> Dictionary:
 		"khatas": [],
 		"entries": [],
 		"payments": [],
+		"sheets": [],
+		"log": [],
 		"settings": {"lang": "en", "last_export": "", "text_size": 1.0},
 		"meta": {"updated": 0, "created": int(Time.get_unix_time_from_system())},
 	}
@@ -86,6 +88,11 @@ static func normalize(d: Dictionary) -> Dictionary:
 	var out := empty_data()
 	for k in ["mills", "people", "khatas", "entries", "payments"]:
 		out[k] = d.get(k, [])
+	for k in ["sheets", "log"]:
+		if d.get(k) is Array:
+			out[k] = d[k]
+	for l in out.log:
+		l.t = int(l.get("t", 0))
 	if d.get("settings") is Dictionary:
 		out.settings.merge(d.settings, true)
 	if d.get("meta") is Dictionary:
@@ -198,17 +205,22 @@ func add_mill(name: String, f_rate: int, h_rate: int, from := "") -> Dictionary:
 		"order": data.mills.size(),
 	}
 	data.mills.append(m)
+	log_event("mill_added", [m.name])
 	save()
 	return m
 
 
 func rename_mill(id: String, name: String) -> void:
+	var old: String = mill(id).name
 	mill(id).name = name.strip_edges()
+	if old != mill(id).name:
+		log_event("mill_renamed", [old, mill(id).name])
 	save()
 
 
 func set_mill_archived(id: String, archived: bool) -> void:
 	mill(id).archived = archived
+	log_event("mill_hidden" if archived else "mill_shown", [mill(id).name])
 	save()
 
 
@@ -217,8 +229,15 @@ func delete_mill(id: String) -> void:
 	## mill's name in their own rows, so old bills still read correctly.
 	for i in data.mills.size():
 		if data.mills[i].id == id:
+			log_event("mill_deleted", [data.mills[i].name])
 			data.mills.remove_at(i)
 			break
+	for sh in data.sheets:
+		var keep_m := []
+		for sm in sh.mills:
+			if sm.mill_id != id:
+				keep_m.append(sm)
+		sh.mills = keep_m
 	for p in data.people:
 		var keep := []
 		for po in p.posts:
@@ -230,6 +249,7 @@ func delete_mill(id: String) -> void:
 
 func add_mill_rate(id: String, from: String, f_rate: int, h_rate: int) -> void:
 	var m := mill(id)
+	log_event("mill_rates", [m.name, f_rate, h_rate])
 	var rates: Array = m.rates
 	for r in rates:
 		if r.from == from:
@@ -251,6 +271,30 @@ func delete_mill_rate(id: String, from: String) -> void:
 			m.rates.remove_at(i)
 			break
 	save()
+
+
+func mill_used_in_payments(id: String) -> bool:
+	for pay in data.payments:
+		for r in pay.get("rows", []):
+			if r.get("mill_id", "") == id:
+				return true
+	return false
+
+
+func set_mill_rates(id: String, f_rate: int, h_rate: int) -> void:
+	## From the mill's edit screen. Before any payment uses the mill the rate is
+	## simply corrected; after that the new rate starts today, so saved bills
+	## and older work keep the old rate.
+	var m := mill(id)
+	var today := Dates.today()
+	if mill_rate(id, "F", today) == f_rate and mill_rate(id, "H", today) == h_rate:
+		return
+	if not mill_used_in_payments(id):
+		m.rates = [{"from": "2000-01-01", "f": f_rate, "h": h_rate}]
+		log_event("mill_rates", [m.name, f_rate, h_rate])
+		save()
+	else:
+		add_mill_rate(id, today, f_rate, h_rate)
 
 
 func mill_rate(id: String, post: String, date: String) -> int:
@@ -314,12 +358,16 @@ func add_person(name: String, posts: Array = [], salary := 0, salary_from := "")
 		p.salaries.append({"from": salary_from if salary_from != "" else "2000-01-01", "amount": salary})
 	data.people.append(p)
 	data.khatas.append(k)
+	log_event("person_added", [p.name])
 	save()
 	return p
 
 
 func rename_person(id: String, name: String) -> void:
+	var old: String = person(id).name
 	person(id).name = name.strip_edges()
+	if old != person(id).name:
+		log_event("person_renamed", [old, person(id).name])
 	save()
 
 
@@ -330,6 +378,7 @@ func set_person_phone(id: String, phone: String) -> void:
 
 func set_person_archived(id: String, archived: bool) -> void:
 	person(id).archived = archived
+	log_event("person_hidden" if archived else "person_shown", [person(id).name])
 	save()
 
 
@@ -390,6 +439,7 @@ func set_posts_at(pid: String, mill_id: String, posts: Array) -> void:
 		if post in posts:
 			keep.append({"mill_id": mill_id, "post": post})
 	p.posts = keep
+	log_event("work_set" if not posts.is_empty() else "work_removed", [p.name, mill(mill_id).get("name", "?"), " ".join(posts)])
 	save()
 
 
@@ -417,6 +467,14 @@ func delete_person(pid: String) -> bool:
 	if not can_delete_person(pid):
 		return false
 	var kid: String = person(pid).khata_id
+	log_event("person_deleted", [person(pid).name])
+	for sh in data.sheets:
+		for sm in sh.mills:
+			var keep := []
+			for w in sm.workers:
+				if w.person_id != pid:
+					keep.append(w)
+			sm.workers = keep
 	for i in data.people.size():
 		if data.people[i].id == pid:
 			data.people.remove_at(i)
@@ -450,6 +508,7 @@ func is_master(pid: String) -> bool:
 
 func add_salary(pid: String, from: String, amount: int) -> void:
 	var p := person(pid)
+	log_event("salary_set", [p.name, amount])
 	for s in p.salaries:
 		if s.from == from:
 			s.amount = amount
@@ -530,6 +589,7 @@ func active_khatas() -> Array:
 func set_opening_balance(kid: String, amount: int, start := "") -> void:
 	var k := khata(kid)
 	k.opening = amount
+	log_event("opening_set", [khata_title(kid), amount])
 	if start != "":
 		k.start = start
 	save()
@@ -561,6 +621,7 @@ func join_family(payee_id: String, member_id: String) -> String:
 	own.archived = true
 	fam.members.append(member_id)
 	person(member_id).khata_id = fam.id
+	log_event("group_joined", [person(member_id).name, khata_title(fam.id)])
 	save()
 	return ""
 
@@ -573,6 +634,7 @@ func leave_family(member_id: String) -> String:
 	var k := {"id": new_id("k"), "payee_id": member_id, "members": [member_id], "opening": 0, "start": "", "paid_upto": fam.get("paid_upto", ""), "archived": false}
 	data.khatas.append(k)
 	person(member_id).khata_id = k.id
+	log_event("group_left", [person(member_id).name, khata_title(fam.id)])
 	save()
 	return ""
 
@@ -581,6 +643,7 @@ func set_payee(kid: String, pid: String) -> void:
 	var k := khata(kid)
 	if pid in k.members:
 		k.payee_id = pid
+		log_event("group_head", [person(pid).name])
 		save()
 
 
@@ -605,6 +668,7 @@ func _new_entry(kid: String, pid: String, type: String, amount: int, date: Strin
 func add_entry(pid: String, type: String, amount: int, date: String, note := "") -> Dictionary:
 	var e := _new_entry(person(pid).khata_id, pid, type, amount, date, note)
 	data.entries.append(e)
+	log_event("entry_added", [person(pid).name, amount], type)
 	save()
 	return e
 
@@ -617,6 +681,7 @@ func update_entry(id: String, type: String, amount: int, date: String, note: Str
 	e.amount = amount
 	e.date = date
 	e.note = note
+	log_event("entry_edited", [person(e.person_id).get("name", "?"), amount], type)
 	save()
 	return true
 
@@ -626,6 +691,8 @@ func delete_entry(id: String) -> bool:
 		if data.entries[i].id == id:
 			if data.entries[i].payment_id != "":
 				return false
+			var de: Dictionary = data.entries[i]
+			log_event("entry_deleted", [person(de.person_id).get("name", "?"), de.amount], de.type)
 			data.entries.remove_at(i)
 			save()
 			return true
@@ -692,11 +759,29 @@ func live_balance(kid: String) -> int:
 	return b
 
 
+func balance(kid: String) -> int:
+	## The balance shown in the app: jama (+) or advance left (−).
+	## Kharchi is not advance: it is kept apart and cut at the next payment.
+	var b := settled_balance(kid)
+	for e in open_entries(kid):
+		if e.type != "kharchi":
+			b += Calc.entry_effect(e)
+	return b
+
+
+func open_kharchi(kid: String) -> int:
+	var t := 0
+	for e in open_entries(kid):
+		if e.type == "kharchi":
+			t += int(e.amount)
+	return t
+
+
 func totals() -> Dictionary:
 	var jama := 0
 	var advance := 0
 	for k in active_khatas():
-		var b := live_balance(k.id)
+		var b := balance(k.id)
 		if b > 0:
 			jama += b
 		elif b < 0:
@@ -874,6 +959,7 @@ func commit_payment(d: Dictionary) -> Dictionary:
 		pay.entry_ids.append(e.id)
 	k.paid_upto = d.upto
 	data.payments.append(pay)
+	log_event("payment_made", [pay.payee_name, pay.paid])
 	save()
 	return pay
 
@@ -895,6 +981,7 @@ func undo_payment(pay_id: String) -> bool:
 			e.payment_id = ""
 	khata(pay.khata_id).paid_upto = pay.prev_paid_upto
 	data.payments.erase(pay)
+	log_event("payment_undone", [pay.payee_name, pay.paid])
 	save()
 	return true
 
@@ -938,6 +1025,183 @@ func payment_entries(pay: Dictionary) -> Array:
 
 
 # --------------------------------------------------------------------------
+# Activity log: every step, newest last. Shown on the Activity page.
+# --------------------------------------------------------------------------
+
+const LOG_MAX := 5000
+
+
+func log_event(kind: String, args: Array = [], type := "") -> void:
+	var l := {"t": int(Time.get_unix_time_from_system()), "d": Dates.today(), "k": kind, "a": args}
+	if type != "":
+		l.ty = type
+	data.log.append(l)
+	if data.log.size() > LOG_MAX:
+		data.log = data.log.slice(data.log.size() - LOG_MAX)
+
+
+func log_list() -> Array:
+	var out: Array = data.log.duplicate()
+	out.reverse()
+	return out
+
+
+# --------------------------------------------------------------------------
+# Salary sheets: one per month ("Oct 2026"). Each has the mills added to it
+# and, per mill, the workers who worked there that month, in the order added.
+# --------------------------------------------------------------------------
+
+func sheet(id: String) -> Dictionary:
+	return _find(data.sheets, id)
+
+
+func sheets_list() -> Array:
+	var out: Array = data.sheets.duplicate()
+	out.sort_custom(func(a, b): return a.ym > b.ym)
+	return out
+
+
+func sheet_for(ym: String) -> Dictionary:
+	for sh in data.sheets:
+		if sh.ym == ym:
+			return sh
+	return {}
+
+
+func add_sheet(ym: String) -> Dictionary:
+	var have := sheet_for(ym)
+	if not have.is_empty():
+		return have
+	var sh := {"id": new_id("s"), "ym": ym, "mills": [], "created": int(Time.get_unix_time_from_system())}
+	data.sheets.append(sh)
+	log_event("sheet_added", [ym])
+	save()
+	return sh
+
+
+func delete_sheet(id: String) -> void:
+	var sh := sheet(id)
+	if sh.is_empty():
+		return
+	log_event("sheet_deleted", [sh.ym])
+	data.sheets.erase(sh)
+	save()
+
+
+func _sheet_mill(sid: String, mid: String) -> Dictionary:
+	for sm in sheet(sid).get("mills", []):
+		if sm.mill_id == mid:
+			return sm
+	return {}
+
+
+func sheet_mill_ids(sid: String) -> Array:
+	var out := []
+	for sm in sheet(sid).get("mills", []):
+		if not mill(sm.mill_id).is_empty():
+			out.append(sm.mill_id)
+	return out
+
+
+func sheet_add_mills(sid: String, mill_ids: Array) -> void:
+	var sh := sheet(sid)
+	if sh.is_empty():
+		return
+	for mid in mill_ids:
+		if _sheet_mill(sid, mid).is_empty() and not mill(mid).is_empty():
+			sh.mills.append({"mill_id": mid, "workers": []})
+			log_event("sheet_mill_added", [sh.ym, mill(mid).name])
+	save()
+
+
+func sheet_remove_mill(sid: String, mid: String) -> void:
+	var sh := sheet(sid)
+	var sm := _sheet_mill(sid, mid)
+	if sm.is_empty():
+		return
+	sh.mills.erase(sm)
+	log_event("sheet_mill_removed", [sh.ym, mill(mid).get("name", "?")])
+	save()
+
+
+func sheet_workers(sid: String, mid: String) -> Array:
+	## [{person_id, posts}] in the order they were added (people removed from
+	## PayTrack are skipped).
+	var out := []
+	for w in _sheet_mill(sid, mid).get("workers", []):
+		if not person(w.person_id).is_empty():
+			out.append(w)
+	return out
+
+
+func sheet_worker_count(sid: String) -> int:
+	var seen := {}
+	for sm in sheet(sid).get("mills", []):
+		for w in sm.workers:
+			if not person(w.person_id).is_empty():
+				seen[w.person_id] = true
+	return seen.size()
+
+
+func sheet_posts(sid: String, mid: String, pid: String) -> Array:
+	for w in _sheet_mill(sid, mid).get("workers", []):
+		if w.person_id == pid:
+			return w.posts
+	return []
+
+
+func sheet_set_worker(sid: String, mid: String, pid: String, posts: Array) -> void:
+	## Adds (at the end) or updates a worker on this month's mill list.
+	## Empty posts removes them from the list. Their work at the mill is also
+	## remembered on the person, so payments know which rows to show.
+	var sm := _sheet_mill(sid, mid)
+	if sm.is_empty():
+		return
+	var ym: String = sheet(sid).ym
+	var ordered := []
+	for post in POSTS:
+		if post in posts:
+			ordered.append(post)
+	for i in sm.workers.size():
+		if sm.workers[i].person_id == pid:
+			if ordered.is_empty():
+				sm.workers.remove_at(i)
+				log_event("sheet_worker_removed", [ym, mill(mid).name, person(pid).name])
+			else:
+				sm.workers[i].posts = ordered
+			_remember_posts(pid, mid, ordered)
+			save()
+			return
+	if ordered.is_empty():
+		return
+	sm.workers.append({"person_id": pid, "posts": ordered})
+	log_event("sheet_worker_added", [ym, mill(mid).name, person(pid).name, " ".join(ordered)])
+	_remember_posts(pid, mid, ordered)
+	save()
+
+
+func _remember_posts(pid: String, mid: String, posts: Array) -> void:
+	for post in posts:
+		if not has_post(pid, mid, post):
+			person(pid).posts.append({"mill_id": mid, "post": post})
+
+
+# --------------------------------------------------------------------------
+# Clear money only (for testing): people, mills, groups, salary sheets and
+# workers stay; kharchi, advances, jama, payments and starting balances go.
+# --------------------------------------------------------------------------
+
+func clear_money() -> void:
+	data.entries = []
+	data.payments = []
+	for k in data.khatas:
+		k.opening = 0
+		k.paid_upto = ""
+	log_event("money_cleared", [])
+	save()
+
+
+# --------------------------------------------------------------------------
 # Export / import (one fixed file format)
 # --------------------------------------------------------------------------
 
@@ -952,7 +1216,7 @@ func export_text() -> String:
 
 
 func export_file_name() -> String:
-	return "PayTrack-%s.paytrack" % Dates.today()
+	return "PayTrack-backup-%s.json" % Dates.today()
 
 
 func mark_exported() -> void:
@@ -978,13 +1242,14 @@ func parse_import(text: String) -> Dictionary:
 			"people": incoming.people.size(),
 			"entries": incoming.entries.size(),
 			"payments": incoming.payments.size(),
+			"sheets": incoming.sheets.size(),
 		},
 		"local_newer": int(data.meta.get("updated", 0)) > int(incoming.meta.get("updated", 0)) and has_any_data(),
 	}
 
 
 func has_any_data() -> bool:
-	return not (data.mills.is_empty() and data.people.is_empty() and data.entries.is_empty())
+	return not (data.mills.is_empty() and data.people.is_empty() and data.entries.is_empty() and data.sheets.is_empty())
 
 
 func apply_import(incoming: Dictionary) -> void:
@@ -994,6 +1259,7 @@ func apply_import(incoming: Dictionary) -> void:
 	data = incoming
 	data.settings.lang = keep_lang
 	data.settings.last_export = Dates.today()
+	log_event("imported", [])
 	if save_enabled:
 		_write_file(SAVE_PATH, JSON.stringify(data))
 	changed.emit()
@@ -1040,4 +1306,11 @@ func load_sample_data() -> void:
 	add_entry(w3.id, "kharchi", 1000, Dates.add_days(today, -3))
 	add_entry(w4.id, "kharchi", 400, today)
 	set_opening_balance(w5.khata_id, 8000)
+	# Last month's salary sheet with both mills.
+	var sh := add_sheet(start.substr(0, 7))
+	sheet_add_mills(sh.id, [a.id, b.id])
+	for p in [w1, w3, w4, w2, m1]:
+		sheet_set_worker(sh.id, a.id, p.id, posts_at(p.id, a.id))
+	for p in [w6, w5, w2]:
+		sheet_set_worker(sh.id, b.id, p.id, posts_at(p.id, b.id))
 	save()

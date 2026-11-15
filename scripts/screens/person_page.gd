@@ -29,7 +29,7 @@ func build(b: VBoxContainer) -> void:
 	if family:
 		# Money belongs to the family khata: show it as one tappable card.
 		var fc := UI.card()
-		var sub := Lang.t("family_receives", [DB.khata_title(kid)]) + " · " + UI.balance_text(DB.live_balance(kid))
+		var sub := Lang.t("family_receives", [DB.khata_title(kid)]) + " · " + UI.balance_text(DB.balance(kid))
 		UI.add_rows(fc, [UI.row(DB.family_title(kid), sub, null, func(): Screens.open_family(kid), true, UI.avatar(DB.khata_title(kid), 38, UI.GREEN_SOFT, UI.GREEN))])
 		b.add_child(UI.margin(fc, 16, 4, 16, 0))
 	else:
@@ -124,7 +124,7 @@ func _toggle_archive(archived: bool) -> void:
 	if archived:
 		DB.set_person_archived(person_id, false)
 		return
-	var bal := DB.live_balance(DB.khata_of(person_id).id)
+	var bal := DB.balance(DB.khata_of(person_id).id)
 	var msg := Lang.t("hide_person_q") if bal == 0 else Lang.t("hide_person_q_balance", [UI.balance_text(bal)])
 	UI.app.confirm(Lang.t("hide_person"), msg, Lang.t("hide"), func(): DB.set_person_archived(person_id, true))
 

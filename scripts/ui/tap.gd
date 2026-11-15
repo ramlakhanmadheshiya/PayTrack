@@ -18,6 +18,7 @@ var enabled := true:
 var _down := false
 var _start := Vector2.ZERO
 var _hover := false
+var last_tap_global := Vector2.ZERO   # where the last tap ended
 
 
 func _init() -> void:

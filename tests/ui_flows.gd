@@ -4,6 +4,7 @@ extends Node
 ##   godot --path . tests/ui_flows.tscn
 
 var app: Control
+var confirm_tap: Tap
 var fails := 0
 var checks := 0
 
@@ -44,7 +45,7 @@ func _run() -> void:
 	await wait(8)
 	check(DB.mills_list().size() == 1, "mill added")
 	var mid: String = DB.mills_list()[0].id
-	check(app.top_page() is MillPage, "mill page opened")
+	check(app.top_sheet() == null, "mill sheet closed after save")
 
 	# Duplicate mill name is refused.
 	MillEditSheet.open("")
@@ -80,6 +81,40 @@ func _run() -> void:
 		app.textpad.press(k)
 	check(ms.name_box.text == "Temp", "letters typed into name (auto capital)")
 	check(int(rate_field.value) == 20, "rate kept 20")
+	# Fix one letter in the middle: "Sunil" → "Bunil".
+	ms.name_box.set_text("Sunil")
+	ms.name_box.set_caret(1)
+	app.textpad.press("⌫")
+	app.textpad.press("b")
+	check(ms.name_box.text == "Bunil", "edit a letter in the middle (got %s)" % ms.name_box.text)
+	check(ms.name_box.caret == 1, "cursor stays after the fixed letter")
+	# Real finger touches on the keys: two fingers at once both type.
+	ms.name_box.set_text("")
+	await wait(2)
+	var kq: Dictionary = {}
+	var kw: Dictionary = {}
+	for kd in app.textpad._keys:
+		if kd.key == "q":
+			kq = kd
+		if kd.key == "w":
+			kw = kd
+	_touch(0, kq.node.get_global_rect().get_center(), true)
+	_touch(1, kw.node.get_global_rect().get_center(), true)
+	_touch(0, kq.node.get_global_rect().get_center(), false)
+	_touch(1, kw.node.get_global_rect().get_center(), false)
+	await wait(2)
+	check(ms.name_box.text == "Qw", "two-finger touch typing (got %s)" % ms.name_box.text)
+	# Holding ⌫ keeps deleting.
+	ms.name_box.set_text("Abcdefgh")
+	var kb: Dictionary = {}
+	for kd in app.textpad._keys:
+		if kd.key == "⌫":
+			kb = kd
+	_touch(0, kb.node.get_global_rect().get_center(), true)
+	for i in 4:
+		app.textpad._on_repeat()
+	_touch(0, kb.node.get_global_rect().get_center(), false)
+	check(ms.name_box.text == "Abc", "hold delete repeats (got %s)" % ms.name_box.text)
 	app.numpad_close()
 	ms.close()
 	await wait(10)
@@ -88,29 +123,64 @@ func _run() -> void:
 	var wrong: Dictionary = DB.add_mill("Wrong Mill", 1, 1)
 	Screens.open_mill(wrong.id)
 	await wait(6)
-	DB.delete_mill(wrong.id)
-	app.pop()
-	await wait(6)
+	check(app.top_sheet() is MillEditSheet, "tapping a mill opens its edit sheet")
+	app.top_sheet()._delete()
+	await wait(4)
+	for n in app.top_sheet().body.find_children("*", "", true, false):
+		if n is Tap:
+			confirm_tap = n
+	confirm_tap.tapped.emit()
+	await wait(10)
 	check(DB.mills_list().size() == 1, "wrong mill deleted")
+	# Editing rates before any payment corrects them.
+	MillEditSheet.open(mid)
+	await wait()
+	ms = app.top_sheet()
+	ms.f_rate = 290
+	ms._save()
+	await wait(8)
+	check(DB.mill_rate(mid, "F", "2026-01-01") == 290, "rate corrected")
+	ms = null
+	MillEditSheet.open(mid)
+	await wait()
+	app.top_sheet().f_rate = 285
+	app.top_sheet()._save()
+	await wait(8)
+
+	# Salary sheet for Oct 2026: add the mill, then workers in the order added.
+	var sh := DB.add_sheet("2026-10")
+	DB.sheet_add_mills(sh.id, [mid])
+	SalaryPage.open_sheet(sh.id)
+	await wait(4)
+	SheetPage.open_mill(sh.id, mid)
+	await wait(4)
+	check(app.top_page() is SheetMillPage, "sheet mill page")
 
 	# Add people with only a name; work is set from the mill.
 	for n in ["Worker A", "Worker B", "Head C", "Member D", "Master E"]:
-		AddWorkerSheet.open(mid)
+		SheetMillPage.add_worker(sh.id, mid)
 		await wait()
-		var aw: AddWorkerSheet = app.top_sheet()
+		var aw: Sheet = app.top_sheet()
 		var pl: PersonList = null
 		for c in aw.body.get_children():
 			if c is PersonList:
 				pl = c
 		pl.on_add.call(n)
 		await wait(4)
-		var ws: WorkSheet = app.top_sheet()
-		check(ws is WorkSheet and ws.mill_id == mid, "work sheet for the mill")
+		var ws: SheetWorkSheet = app.top_sheet()
+		check(ws is SheetWorkSheet and ws.mill_id == mid, "work sheet for the mill")
 		ws.posts = ["BM"] if n.begins_with("Master") else ["F", "H"]
 		ws.salary = 22000
 		ws.build()
 		ws._save()
 		await wait(10)
+	var order := []
+	for w in DB.sheet_workers(sh.id, mid):
+		order.append(DB.person(w.person_id).name)
+	check(order == ["Worker A", "Worker B", "Head C", "Member D", "Master E"], "sheet keeps the order added")
+	check(DB.sheet_worker_count(sh.id) == 5, "five on the sheet")
+	app.go_tab_root("salary")
+	await wait(4)
 	check(DB.people_list().size() == 5, "five people")
 	check(DB.is_master(DB.find_person_by_name("Master E").id), "master has BM")
 	check(DB.salary_on(DB.find_person_by_name("Master E").id, "2026-11-15") == 22000, "salary saved")
@@ -195,6 +265,7 @@ func _run() -> void:
 	await wait(10)
 	var open_e := DB.open_entries(a.khata_id)
 	check(open_e.size() == 1 and open_e[0].amount == 700, "kharchi saved")
+	check(DB.balance(a.khata_id) == 0 and DB.open_kharchi(a.khata_id) == 700, "kharchi is not shown as advance")
 	Screens.open_entry_sheet("", open_e[0].id)
 	await wait()
 	es = app.top_sheet()
@@ -273,7 +344,7 @@ func _run() -> void:
 	check(DB.payment(pid).is_empty(), "undone")
 
 	# Pay by mill with families and a master over two months.
-	app.go_tab_root("mills")
+	app.go_tab_root("salary")
 	Screens.start_pay_mill(mid)
 	await wait(6)
 	flow = app.top_page()
@@ -323,18 +394,46 @@ func _run() -> void:
 
 	# Every tab in Hindi, then back.
 	Lang.set_lang("hi", false)
-	for t in ["home", "mills", "people", "balances", "more"]:
+	for t in ["home", "salary", "people", "balances", "more"]:
 		app.switch_tab(t)
 		await wait(3)
+	var ppg: PeoplePage = app.top_page() if app.top_page() is PeoplePage else null
+	app.switch_tab("people")
+	ppg = app.top_page()
+	for f in [0, 1, 2]:
+		ppg.mode = 1
+		ppg.filter = f
+		ppg.refresh()
+		await wait(2)
+	ppg.mode = 0
+	ppg.refresh()
+	await wait(2)
+	app.push(ActivityPage.new())
+	await wait(4)
+	app.pop()
+	await wait(4)
 	Lang.set_lang("en", false)
 	app.set_text_size(1.3)
 	await wait(4)
 	app.set_text_size(1.0)
 	await wait(4)
 
+	# Activity log reads well for every step.
+	var bad := 0
+	for l in DB.log_list():
+		var txt := ActivityPage.text_of(l)
+		if txt == l.k or "%" in txt:
+			bad += 1
+			print("  log text: ", l)
+	check(DB.log_list().size() > 20 and bad == 0, "activity log has readable steps")
+	# Clear money only: people, mills, sheets stay.
+	var people_before := DB.people_list().size()
+	DB.clear_money()
+	check(DB.data.payments.is_empty() and DB.data.entries.is_empty(), "money cleared")
+	check(DB.people_list().size() == people_before and DB.mills_list().size() == 1 and DB.sheet_worker_count(sh.id) == 5, "people, mills, sheets kept")
 	# Export text round trip (no file written).
 	var r := DB.parse_import(DB.export_text())
-	check(not r.has("error") and r.summary.people == 5, "export parses")
+	check(not r.has("error") and r.summary.people == 5 and r.summary.sheets == 1, "export parses")
 	# Every new screen opens without errors.
 	Screens.open_family(DB.khata_of(head.id).id)
 	await wait(4)
@@ -383,3 +482,12 @@ func _selected_segment(holder: Node) -> int:
 		if st is StyleBoxFlat and st.bg_color == UI.CARD:
 			return i
 	return -1
+
+
+func _touch(idx: int, pos: Vector2, pressed: bool) -> void:
+	var t := InputEventScreenTouch.new()
+	t.index = idx
+	# Real touches come in screen pixels; the viewport scales them to layout units.
+	t.position = get_viewport().get_final_transform() * pos
+	t.pressed = pressed
+	get_viewport().push_input(t)

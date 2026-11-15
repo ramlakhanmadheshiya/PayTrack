@@ -1,5 +1,5 @@
 class_name NumPad
-extends PanelContainer
+extends PadBase
 ## The app's own number pad (like the iPhone keypad). Works with touch and
 ## with a hardware keyboard (digits, ".", Backspace, Enter/Tab = next, Esc = done).
 
@@ -26,6 +26,7 @@ func _ready() -> void:
 
 func build() -> void:
 	UI.clear(self)
+	clear_keys()
 	var v := UI.vbox(6)
 	add_child(v)
 	# Top strip: what you are typing, the value, prev / next / done.
@@ -86,18 +87,13 @@ func _strip_text(text: String, cb: Callable, bold := false) -> Tap:
 	return t
 
 
-func _key(k: String) -> Tap:
-	var t := Tap.new()
-	var special := k == "⌫" or k == "."
+func _key(k: String) -> PanelContainer:
 	var bg := Color("#BFC2CA") if k == "⌫" else Color.WHITE
 	var s := UI.box(bg, 8)
-	s.shadow_color = Color(0, 0, 0, 0.25)
-	s.shadow_size = 0
-	s.shadow_offset = Vector2(0, 1)
 	s.border_width_bottom = 1
 	s.border_color = Color("#9A9DA5")
-	var sp := UI.box(Color("#C6C9D0") if not special or k == "." else Color.WHITE, 8)
-	t.set_styles(s, sp)
+	var sp := UI.box(Color.WHITE if k == "⌫" else Color("#C6C9D0"), 8)
+	var t := make_key(k, s, sp, not (k == "." and field and not field.decimals))
 	t.custom_minimum_size = Vector2(0, 48)
 	t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var c := CenterContainer.new()
@@ -105,11 +101,13 @@ func _key(k: String) -> Tap:
 		c.add_child(UI.label("⌫", 22, UI.TEXT, 400))
 	else:
 		c.add_child(UI.label(k, 25, UI.TEXT, 400, true))
-	t.add_child_ignoring(c)
-	t.tapped.connect(func(): press(k))
-	if k == "." and field and not field.decimals:
-		t.enabled = false
+	t.add_child(c)
+	UI.ignore_mouse(c)
 	return t
+
+
+func key_down(k: String) -> void:
+	press(k)
 
 
 func attach(f: NumField) -> void:
@@ -124,6 +122,7 @@ func attach(f: NumField) -> void:
 
 
 func detach() -> void:
+	release_all()
 	if field and is_instance_valid(field):
 		_commit()
 		field.set_active(false)
@@ -196,27 +195,24 @@ func move(dir: int) -> void:
 		UI.app.numpad_close()
 
 
-func _input(ev: InputEvent) -> void:
-	if not visible or field == null:
-		return
-	if ev is InputEventKey and ev.pressed:
-		var kc: int = ev.keycode
-		var handled := true
-		if kc >= KEY_0 and kc <= KEY_9:
-			press(str(kc - KEY_0))
-		elif kc >= KEY_KP_0 and kc <= KEY_KP_9:
-			press(str(kc - KEY_KP_0))
-		elif kc == KEY_PERIOD or kc == KEY_KP_PERIOD:
-			press(".")
-		elif kc == KEY_BACKSPACE:
-			press("⌫")
-		elif kc == KEY_TAB and ev.shift_pressed:
-			move(-1)
-		elif kc == KEY_ENTER or kc == KEY_KP_ENTER or kc == KEY_TAB:
-			move(1)
-		elif kc == KEY_ESCAPE:
-			UI.app.numpad_close()
-		else:
-			handled = false
-		if handled:
-			get_viewport().set_input_as_handled()
+func hardware_key(ev: InputEventKey) -> bool:
+	if field == null:
+		return false
+	var kc: int = ev.keycode
+	if kc >= KEY_0 and kc <= KEY_9:
+		press(str(kc - KEY_0))
+	elif kc >= KEY_KP_0 and kc <= KEY_KP_9:
+		press(str(kc - KEY_KP_0))
+	elif kc == KEY_PERIOD or kc == KEY_KP_PERIOD:
+		press(".")
+	elif kc == KEY_BACKSPACE:
+		press("⌫")
+	elif kc == KEY_TAB and ev.shift_pressed:
+		move(-1)
+	elif kc == KEY_ENTER or kc == KEY_KP_ENTER or kc == KEY_TAB:
+		move(1)
+	elif kc == KEY_ESCAPE:
+		UI.app.numpad_close()
+	else:
+		return false
+	return true

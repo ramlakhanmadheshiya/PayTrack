@@ -79,7 +79,7 @@ func _fill() -> void:
 		var k := DB.khata_of(id)
 		if DB.is_family(k.id) and k.payee_id != id:
 			sub = Lang.t("in_family_of", [DB.khata_title(k.id)])
-		rows.append(UI.row(p.name, sub, UI.balance_label(DB.live_balance(k.id)), func(): UI.app.numpad_close(); on_pick.call(id), false, UI.avatar(p.name, 36)))
+		rows.append(UI.row(p.name, sub, UI.balance_label(DB.balance(k.id)), func(): UI.app.numpad_close(); on_pick.call(id), false, UI.avatar(p.name, 36)))
 	if rows.is_empty():
 		var l := UI.wrapped(UI.label(Lang.t("no_match") if q != "" else Lang.t("no_people_yet"), UI.S_SUB, UI.TEXT2))
 		UI.card_body(c).add_child(UI.margin(l, 16, 14, 16, 14))

@@ -185,7 +185,7 @@ func _build_choose(b: VBoxContainer) -> void:
 			sub = Lang.t("family_with", [DB.khata_subtitle(kid)]) + " · " + sub
 		var lead := Icons.make("check_circle" if on else "circle", UI.ACCENT if on else UI.TEXT3, 26)
 		var k2: String = kid
-		rows.append(UI.row(DB.khata_title(kid), sub, UI.balance_label(DB.live_balance(kid)), func(): selected[k2] = not selected[k2]; refresh(), false, lead))
+		rows.append(UI.row(DB.khata_title(kid), sub, UI.balance_label(DB.balance(kid)), func(): selected[k2] = not selected[k2]; refresh(), false, lead))
 	UI.add_rows(c, rows)
 	b.add_child(UI.margin(c, 16, 0, 16, 0))
 	b.add_child(UI.footnote(Lang.t("family_note")))

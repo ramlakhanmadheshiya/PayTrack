@@ -39,6 +39,7 @@ func build(b: VBoxContainer) -> void:
 	b.add_child(UI.section_title(Lang.t("records")))
 	var rc := UI.card()
 	UI.add_rows(rc, [
+		UI.row(Lang.t("activity"), Lang.t("activity_sub"), null, func(): UI.app.push(ActivityPage.new()), true, Icons.make("history", UI.ACCENT, 22)),
 		UI.row(Lang.t("all_payments"), Lang.t("n_payments", [DB.data.payments.size()]), null, func(): UI.app.push(PaymentsPage.new()), true, Icons.make("history", UI.ACCENT, 22)),
 		UI.row(Lang.t("how_it_works"), "", null, func(): UI.app.push(HelpPage.new()), true, Icons.make("info", UI.ACCENT, 22)),
 	])
@@ -49,6 +50,7 @@ func build(b: VBoxContainer) -> void:
 	var drows := []
 	if not DB.has_any_data():
 		drows.append(UI.row(Lang.t("try_sample"), Lang.t("sample_body"), null, func(): DB.load_sample_data(); UI.app.toast(Lang.t("sample_loaded")), true, Icons.make("doc", UI.ACCENT, 22)))
+	drows.append(UI.row(Lang.t("clear_money"), Lang.t("clear_money_help"), null, _clear_money, false, Icons.make("rupee", UI.ORANGE, 22)))
 	drows.append(UI.row(Lang.t("erase_all"), Lang.t("erase_all_help"), null, _erase, false, Icons.make("trash", UI.RED, 22)))
 	UI.add_rows(dc, drows)
 	b.add_child(UI.margin(dc, 16, 0, 16, 0))
@@ -67,3 +69,10 @@ func _erase() -> void:
 			DB.save()
 			UI.app.go_tab_root("home")
 			UI.app.toast(Lang.t("erased")), true), true)
+
+
+func _clear_money() -> void:
+	UI.app.confirm(Lang.t("clear_money"), Lang.t("clear_money_q"), Lang.t("clear_money"), func():
+		UI.app.confirm(Lang.t("clear_money"), Lang.t("clear_money_q2"), Lang.t("clear_money"), func():
+			DB.clear_money()
+			UI.app.toast(Lang.t("money_cleared")), true), true)

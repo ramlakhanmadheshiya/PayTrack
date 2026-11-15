@@ -2,8 +2,8 @@ extends Control
 ## App shell: tabs (phone) or sidebar (iPad / desktop), one navigation stack per
 ## tab, sheets, the number pad, toasts and screen scaling.
 
-const TABS := ["home", "mills", "people", "balances", "more"]
-const TAB_ICONS := {"home": "home", "mills": "mill", "people": "people", "balances": "balance", "more": "more"}
+const TABS := ["home", "salary", "people", "balances", "more"]
+const TAB_ICONS := {"home": "home", "salary": "doc", "people": "people", "balances": "balance", "more": "more"}
 const WIDE := 820.0
 
 var current_tab := "home"

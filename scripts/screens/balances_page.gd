@@ -19,7 +19,7 @@ func build(b: VBoxContainer) -> void:
 	b.add_child(UI.margin(UI.segmented([Lang.t("jama"), Lang.t("advance"), Lang.t("all")], filter, func(i): filter = i; refresh()), 16, 0, 16, 10))
 	var list := []
 	for k in DB.active_khatas():
-		var bal := DB.live_balance(k.id)
+		var bal := DB.balance(k.id)
 		if filter == 0 and bal <= 0:
 			continue
 		if filter == 1 and bal >= 0:
