@@ -43,9 +43,10 @@ func build() -> void:
 	mid.add_child(_caption)
 	mid.add_child(_value)
 	top.add_child(mid)
-	_next = _strip_text(Lang.t("next"), func(): move(1))
+	# One button: "Next" while there is another field, "Done" on the last one.
+	_next = _strip_text(Lang.t("next"), func(): move(1), true)
+	_next.custom_minimum_size.x = 96
 	top.add_child(_next)
-	top.add_child(_strip_text(Lang.t("done"), func(): UI.app.numpad_close(), true))
 	v.add_child(top)
 	var grid := GridContainer.new()
 	grid.columns = 3
@@ -180,12 +181,14 @@ func _update() -> void:
 		shown = "₹" + Money.group(buffer.to_int())
 	_value.text = shown if shown != "" else "0"
 	field.set_display(Money.group(buffer.to_int()) if field.is_money and buffer != "" and not "." in buffer else buffer)
-	_next.enabled = UI.app.numpad_neighbor(field, 1) != null
+	var has_next: bool = UI.app.numpad_neighbor(field, 1) != null
+	var nl: Label = _next.get_child(0)
+	nl.text = Lang.t("next") if has_next else Lang.t("done")
 	_prev.enabled = UI.app.numpad_neighbor(field, -1) != null
 
 
 func move(dir: int) -> void:
-	var n: NumField = UI.app.numpad_neighbor(field, dir)
+	var n: Control = UI.app.numpad_neighbor(field, dir)
 	if n:
 		_commit()
 		UI.app.numpad_open(n)

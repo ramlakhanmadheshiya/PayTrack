@@ -59,43 +59,113 @@ func _run() -> void:
 	ms.close()
 	await wait(10)
 
-	# Add workers from the mill page (new names).
+	# In-app keyboards: type a rate on the number pad, then the name with the
+	# letter keyboard — letters must go to the name, never to the rate.
+	MillEditSheet.open("")
+	await wait()
+	ms = app.top_sheet()
+	var rate_field: NumField = null
+	for n in ms.find_children("*", "", true, false):
+		if n is NumField:
+			rate_field = n
+			break
+	app.numpad_open(rate_field)
+	await wait()
+	app.numpad.press("2")
+	app.numpad.press("0")
+	app.numpad_open(ms.name_box)
+	await wait()
+	check(not app.numpad.visible and app.textpad.visible, "letter keyboard replaced number pad")
+	for k in ["t", "e", "m", "p"]:
+		app.textpad.press(k)
+	check(ms.name_box.text == "Temp", "letters typed into name (auto capital)")
+	check(int(rate_field.value) == 20, "rate kept 20")
+	app.numpad_close()
+	ms.close()
+	await wait(10)
+
+	# Delete a wrong mill.
+	var wrong: Dictionary = DB.add_mill("Wrong Mill", 1, 1)
+	Screens.open_mill(wrong.id)
+	await wait(6)
+	DB.delete_mill(wrong.id)
+	app.pop()
+	await wait(6)
+	check(DB.mills_list().size() == 1, "wrong mill deleted")
+
+	# Add people with only a name; work is set from the mill.
 	for n in ["Worker A", "Worker B", "Head C", "Member D", "Master E"]:
-		AddWorkSheet.open_for_mill(mid)
+		AddWorkerSheet.open(mid)
 		await wait()
-		var s: AddWorkSheet = app.top_sheet()
-		s.new_name = n
-		s._to_details()
-		await wait()
-		s.selected[mid] = ["BM"] if n.begins_with("Master") else ["F", "H"]
-		s.salary = 22000
-		s.build()
-		s._save()
+		var aw: AddWorkerSheet = app.top_sheet()
+		var pl: PersonList = null
+		for c in aw.body.get_children():
+			if c is PersonList:
+				pl = c
+		pl.on_add.call(n)
+		await wait(4)
+		var ws: WorkSheet = app.top_sheet()
+		check(ws is WorkSheet and ws.mill_id == mid, "work sheet for the mill")
+		ws.posts = ["BM"] if n.begins_with("Master") else ["F", "H"]
+		ws.salary = 22000
+		ws.build()
+		ws._save()
 		await wait(10)
 	check(DB.people_list().size() == 5, "five people")
 	check(DB.is_master(DB.find_person_by_name("Master E").id), "master has BM")
 	check(DB.salary_on(DB.find_person_by_name("Master E").id, "2026-11-15") == 22000, "salary saved")
+	# Edit one person's work at the mill (only F now).
+	var wb := DB.find_person_by_name("Worker B")
+	WorkSheet.open(wb.id, mid)
+	await wait()
+	var wsb: WorkSheet = app.top_sheet()
+	wsb.posts = ["F"]
+	wsb._save()
+	await wait(8)
+	check(DB.posts_at(wb.id, mid) == ["F"], "posts at mill edited")
 
-	# Duplicate person name → question sheet, "No, add a tag".
-	AddWorkSheet.open_new_person("worker a")
+	# New person sheet asks only name + starting balance; duplicate asks "same person?".
+	AddPersonSheet.open("Worker A")
 	await wait()
-	var dup: AddWorkSheet = app.top_sheet()
-	dup._save()
+	var aps: AddPersonSheet = app.top_sheet()
+	aps._save()
 	await wait()
-	check(app.top_sheet() != dup, "same-person question shown")
+	check(app.top_sheet() is SamePersonSheet, "same-person question shown")
 	app.top_sheet().close()
-	dup.close()
+	aps.close()
 	await wait(10)
 	check(DB.people_list().size() == 5, "duplicate not added")
+	AddPersonSheet.open("Temp Person")
+	await wait()
+	aps = app.top_sheet()
+	aps.opening_kind = 1
+	aps.opening_amount = 500
+	aps._save()
+	await wait(10)
+	var tp := DB.find_person_by_name("Temp Person")
+	check(DB.live_balance(tp.khata_id) == 500, "starting jama saved")
+	check(DB.can_delete_person(tp.id), "new person can be deleted")
+	check(DB.delete_person(tp.id), "person deleted")
+	app.go_tab_root("people")
+	await wait(4)
 
-	# Family from the person page.
+	# Family made from People › Families.
 	var head := DB.find_person_by_name("Head C")
 	var mem := DB.find_person_by_name("Member D")
-	Screens.open_person(head.id)
-	await wait(6)
-	check(DB.join_family(head.id, mem.id) == "", "family join")
-	await wait(6)
+	NewFamilySheet.open()
+	await wait()
+	var nf: NewFamilySheet = app.top_sheet()
+	nf.head_id = head.id
+	nf.members = [mem.id]
+	nf._save()
+	await wait(8)
 	check(DB.is_family(DB.khata_of(head.id).id), "family exists")
+	check(app.top_page() is FamilyPage, "family page opened")
+	app.go_tab_root("people")
+	var pp: PeoplePage = app.top_page()
+	pp.filter = 0
+	pp.refresh()
+	await wait(4)
 
 	# Kharchi through the entry sheet, then edit and delete.
 	var a := DB.find_person_by_name("Worker A")
@@ -154,6 +224,29 @@ func _run() -> void:
 	check(flow.step == 3 and flow.saved.size() == 1, "payment saved")
 	var pid: String = flow.saved[0]
 	check(DB.payment(pid).new_balance == 2850 + 4200 - 900, "keep jama balance")
+	# Correct the payment: reopens with the same numbers; leaving keeps the old one.
+	Screens.correct_payment(pid)
+	await wait()
+	var confirm_btn: Tap = null
+	for n in app.top_sheet().body.find_children("*", "", true, false):
+		if n is Tap:
+			confirm_btn = n
+	confirm_btn.tapped.emit()
+	await wait(8)
+	var cf: PayFlow = app.top_page()
+	check(cf.correcting.size() == 1 and DB.payment(pid).is_empty(), "payment reopened for correction")
+	check(cf.drafts[0].rows[0].att == 10.0, "same attendance prefilled")
+	for d in cf.correcting:
+		DB.commit_payment(d)
+	cf.correcting.clear()
+	app.pop()
+	await wait(6)
+	var again: Dictionary = DB.last_payment(a.khata_id)
+	check(again.new_balance == 2850 + 4200 - 900, "old payment put back exactly")
+	pid = again.id
+	# Bill shows exact dates.
+	check(Lang.period("2026-10-01", "2026-11-15") == "1 Oct – 15 Nov 2026", "exact period text")
+	check(Lang.period("2026-10-01", "2026-10-31") == "1 – 31 Oct 2026", "exact month text")
 	Screens.open_payment(pid)
 	await wait(6)
 	check(DB.can_undo_payment(pid), "undo allowed")
@@ -189,6 +282,11 @@ func _run() -> void:
 	flow._save_all()
 	await wait(6)
 	check(flow.saved.size() == 4, "four khatas paid (family counted once)")
+	var wb_pay: Dictionary = {}
+	for id in flow.saved:
+		if DB.payment(id).payee_name == "Worker B":
+			wb_pay = DB.payment(id)
+	check(wb_pay.rows.size() == 1 and wb_pay.rows[0].post == "F", "edited work used in pay")
 	var master_pay := {}
 	for id in flow.saved:
 		var p := DB.payment(id)
@@ -219,6 +317,17 @@ func _run() -> void:
 	# Export text round trip (no file written).
 	var r := DB.parse_import(DB.export_text())
 	check(not r.has("error") and r.summary.people == 5, "export parses")
+	# Every new screen opens without errors.
+	Screens.open_family(DB.khata_of(head.id).id)
+	await wait(4)
+	Screens.open_person(mem.id)
+	await wait(4)
+	Screens.open_person(a.id)
+	await wait(4)
+	app.top_page()._menu()
+	await wait(4)
+	app.top_sheet().close()
+	await wait(10)
 
 	print("UI flows: %d checks, %d failed" % [checks, fails])
 	get_tree().quit(1 if fails > 0 else 0)

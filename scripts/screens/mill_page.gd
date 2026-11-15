@@ -1,8 +1,11 @@
 class_name MillPage
 extends Page
-## One mill: rates (with history), workers, pay workers here.
+## One mill: a one-line rate header, Pay button, and the workers list
+## (a family is one row). Everything else is in the ⋯ menu.
 
 var mill_id := ""
+var query := ""
+var _list: VBoxContainer
 
 
 func _init() -> void:
@@ -13,84 +16,103 @@ func back_label() -> String:
 	return Lang.t("tab_mills")
 
 
+func nav_right() -> Control:
+	return UI.icon_button("more", _menu)
+
+
 func build(b: VBoxContainer) -> void:
 	var m := DB.mill(mill_id)
 	if m.is_empty():
 		return
 	title = m.name
 	var today := Dates.today()
-	var workers: Array = DB.mill_workers(mill_id)
-
+	# Rates: one compact line.
+	var rates := UI.hbox(8)
+	rates.add_child(UI.badge("F"))
+	rates.add_child(UI.label("₹" + Money.group(DB.mill_rate(mill_id, "F", today)), UI.S_SUB, UI.TEXT, 600, true))
+	rates.add_child(UI.spacer(0, 6))
+	rates.add_child(UI.badge("H"))
+	rates.add_child(UI.label("₹" + Money.group(DB.mill_rate(mill_id, "H", today)), UI.S_SUB, UI.TEXT, 600, true))
+	rates.add_child(UI.flex())
+	rates.add_child(UI.link(Lang.t("edit"), func(): RateSheet.open_mill(mill_id), UI.ACCENT, UI.S_SUB))
+	b.add_child(UI.margin(rates, 16, 0, 12, 6))
 	if m.get("archived", false):
-		b.add_child(UI.margin(UI.pill(Lang.t("hidden"), UI.FILL, UI.TEXT2), 16, 0, 16, 8))
+		b.add_child(UI.margin(UI.pill(Lang.t("hidden"), UI.FILL, UI.TEXT2), 16, 0, 16, 6))
 
-	# Pay button.
+	var workers: Array = DB.mill_workers(mill_id)
 	if not workers.is_empty() and not m.get("archived", false):
-		b.add_child(UI.margin(UI.button(Lang.t("pay_at_mill", [m.name]), "primary", func(): Screens.start_pay_mill(mill_id), "pay"), 16, 8, 16, 0))
+		b.add_child(UI.margin(UI.button(Lang.t("pay_at_mill", [m.name]), "primary", func(): Screens.start_pay_mill(mill_id), "pay"), 16, 6, 16, 4))
+	if workers.size() > 12:
+		b.add_child(UI.margin(UI.search_field(Lang.t("search_name"), query, func(t): query = t; _fill()), 16, 10, 16, 0))
+	_list = UI.vbox(0)
+	b.add_child(_list)
+	_fill()
 
-	# Rates.
-	b.add_child(UI.section_title(Lang.t("rates"), UI.link(Lang.t("edit"), func(): RateSheet.open_mill(mill_id), UI.ACCENT, UI.S_SUB)))
-	var rc := UI.card()
-	UI.add_rows(rc, [
-		UI.row(Lang.t("rate_f"), Lang.t("per_attendance"), UI.label("₹" + Money.group(DB.mill_rate(mill_id, "F", today)), UI.S_HEAD, UI.TEXT, 600, true), Callable(), false, UI.badge("F")),
-		UI.row(Lang.t("rate_h"), Lang.t("per_attendance"), UI.label("₹" + Money.group(DB.mill_rate(mill_id, "H", today)), UI.S_HEAD, UI.TEXT, 600, true), Callable(), false, UI.badge("H")),
-	])
-	b.add_child(UI.margin(rc, 16, 0, 16, 0))
-	b.add_child(UI.footnote(Lang.t("hours_rule")))
-	var rates: Array = m.rates
-	if rates.size() > 1:
-		b.add_child(UI.section_title(Lang.t("rate_history")))
-		var hc := UI.card()
-		var rows := []
-		for i in range(rates.size() - 1, -1, -1):
-			var r: Dictionary = rates[i]
-			var from: String = r.from
-			var when := Lang.t("from_date", [Lang.date_full(from)]) if from > "2000-01-01" else Lang.t("from_start")
-			var del: Control = UI.icon_button("trash", func(): UI.app.confirm(Lang.t("delete_rate"), Lang.t("delete_rate_q"), Lang.t("delete"), func(): DB.delete_mill_rate(mill_id, from), true), UI.RED, 18)
-			var h := UI.hbox(8)
-			h.add_child(UI.label("F ₹%s · H ₹%s" % [Money.group(r.f), Money.group(r.h)], UI.S_SUB, UI.TEXT, 500, true))
-			h.add_child(del)
-			rows.append(UI.row(when, "", h, Callable(), false))
-		UI.add_rows(hc, rows)
-		b.add_child(UI.margin(hc, 16, 0, 16, 0))
 
-	# Workers.
-	b.add_child(UI.section_title(Lang.t("workers_n", [workers.size()]), UI.link(Lang.t("add"), _add_worker, UI.ACCENT, UI.S_SUB)))
-	var wc := UI.card()
-	if workers.is_empty():
-		UI.card_body(wc).add_child(UI.margin(UI.wrapped(UI.label(Lang.t("no_workers"), UI.S_SUB, UI.TEXT2)), 16, 14, 16, 14))
-		UI.card_body(wc).add_child(UI.line())
-		UI.card_body(wc).add_child(UI.row(Lang.t("add_worker"), "", null, _add_worker, false, Icons.make("plus", UI.ACCENT, 22)))
-	else:
-		var rows := []
-		for p in workers:
-			var id: String = p.id
-			var badges := UI.hbox(4)
-			for po in DB.sorted_posts(id):
-				if po.mill_id == mill_id:
-					badges.add_child(UI.badge(po.post))
-			var k := DB.khata_of(id)
-			var from := DB.next_work_from(k.id)
-			var sub := Lang.t("work_from", [Lang.date_smart(from)]) if from != "" else Lang.t("not_paid_yet")
-			if DB.is_family(k.id) and k.payee_id != id:
-				sub = Lang.t("in_family_of", [DB.khata_title(k.id)])
-			var right := UI.hbox(10)
-			right.add_child(badges)
-			rows.append(UI.row(p.name, sub, right, func(): Screens.open_person(id), true, UI.avatar(p.name, 36)))
-		rows.append(UI.row(Lang.t("add_worker"), "", null, _add_worker, false, Icons.make("plus", UI.ACCENT, 22)))
-		UI.add_rows(wc, rows)
-	b.add_child(UI.margin(wc, 16, 0, 16, 0))
+func _fill() -> void:
+	UI.clear(_list)
+	var workers: Array = DB.mill_workers(mill_id)
+	var q := query.strip_edges().to_lower()
+	# One row per khata: a family shows once, with its members at this mill.
+	var kids := []
+	var members_here := {}
+	for p in workers:
+		var kid: String = p.khata_id
+		if not members_here.has(kid):
+			members_here[kid] = []
+			kids.append(kid)
+		members_here[kid].append(p)
+	kids.sort_custom(func(a, c): return DB.khata_title(a).naturalnocasecmp_to(DB.khata_title(c)) < 0)
+	_list.add_child(UI.section_title(Lang.t("workers_n", [workers.size()])))
+	var c := UI.card()
+	var rows := []
+	for kid in kids:
+		var ppl: Array = members_here[kid]
+		var family := DB.is_family(kid)
+		var names := []
+		for p in ppl:
+			names.append(p.name)
+		if q != "" and not q in " ".join(names).to_lower() and not q in DB.khata_title(kid).to_lower():
+			continue
+		var badges := UI.hbox(4)
+		var posts := []
+		for p in ppl:
+			for post in DB.posts_at(p.id, mill_id):
+				if not post in posts:
+					posts.append(post)
+		for post in posts:
+			badges.add_child(UI.badge(post))
+		var from := DB.next_work_from(kid)
+		var sub := Lang.t("work_from", [Lang.date_smart(from)]) if from != "" else Lang.t("not_paid_yet")
+		if family:
+			sub = ", ".join(names) + " · " + sub
+			var k2: String = kid
+			rows.append(UI.row(DB.family_title(kid), sub, badges, func(): Screens.open_family(k2), true, UI.avatar(DB.khata_title(kid), 36, UI.GREEN_SOFT, UI.GREEN)))
+		else:
+			var pid: String = ppl[0].id
+			rows.append(UI.row(ppl[0].name, sub, badges, func(): Screens.open_person(pid), true, UI.avatar(ppl[0].name, 36)))
+	rows.append(UI.row(Lang.t("add_worker"), "", null, func(): AddWorkerSheet.open(mill_id), false, Icons.make("plus", UI.ACCENT, 22)))
+	UI.add_rows(c, rows)
+	_list.add_child(UI.margin(c, 16, 0, 16, 0))
 
-	# Settings.
-	b.add_child(UI.section_title(Lang.t("settings")))
-	var sc := UI.card()
+
+func _menu() -> void:
+	var m := DB.mill(mill_id)
 	var archived: bool = m.get("archived", false)
-	UI.add_rows(sc, [
-		UI.row(Lang.t("rename_mill"), "", null, func(): MillEditSheet.open(mill_id), true, Icons.make("edit", UI.ACCENT, 20)),
-		UI.row(Lang.t("show_mill") if archived else Lang.t("hide_mill"), Lang.t("hide_mill_help") if not archived else "", null, func(): DB.set_mill_archived(mill_id, not archived), false, Icons.make("history", UI.TEXT2, 20)),
+	UI.app.menu(m.name, [
+		[Lang.t("edit_rates"), "edit", func(): RateSheet.open_mill(mill_id)],
+		[Lang.t("rename_mill"), "edit", func(): MillEditSheet.open(mill_id)],
+		[Lang.t("show_mill") if archived else Lang.t("hide_mill"), "history", func(): DB.set_mill_archived(mill_id, not archived)],
+		[Lang.t("delete_mill"), "trash", _delete, true],
 	])
-	b.add_child(UI.margin(sc, 16, 0, 16, 0))
 
 
-func _add_worker() -> void:
-	AddWorkSheet.open_for_mill(mill_id)
+func _delete() -> void:
+	var m := DB.mill(mill_id)
+	var n := DB.mill_workers(mill_id).size()
+	var msg := Lang.t("delete_mill_q", [m.name]) if n == 0 else Lang.t("delete_mill_q_workers", [m.name, n])
+	UI.app.confirm(Lang.t("delete_mill"), msg, Lang.t("delete_mill"), func():
+		var name: String = m.name
+		DB.delete_mill(mill_id)
+		UI.app.pop()
+		UI.app.toast(Lang.t("mill_deleted", [name])), true)

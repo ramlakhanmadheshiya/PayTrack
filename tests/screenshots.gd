@@ -38,7 +38,7 @@ func wait(frames := 6) -> void:
 
 
 func shot(name: String) -> void:
-	await wait(8)
+	await wait(24)
 	await RenderingServer.frame_post_draw
 	var img := get_viewport().get_texture().get_image()
 	n += 1
@@ -75,6 +75,16 @@ func _run() -> void:
 	var first_mill: Dictionary = db.mills_list()[0]
 	Screens.open_mill(first_mill.id)
 	await shot("mill")
+	app.top_page()._menu()
+	await shot("mill-menu")
+	app.top_sheet().close()
+	await wait(20)
+	MillEditSheet.open(first_mill.id)
+	await wait(6)
+	await shot("keyboard")
+	app.numpad_close()
+	app.top_sheet().close()
+	await wait(20)
 	# Pay by mill.
 	Screens.start_pay_mill(first_mill.id)
 	await shot("pay-choose")
@@ -115,12 +125,24 @@ func _run() -> void:
 	var first_pay: String = flow.saved[0]
 	Screens.open_payment(first_pay)
 	await shot("bill")
+	var flow_master: String = ""
+	for id in flow.saved:
+		if db.payment(id).payee_name == "Ramesh":
+			flow_master = id
+	Screens.open_payment(flow_master)
+	await shot("bill-master")
 	app.pop_to_root()
 	# People.
 	app.switch_tab("people")
 	await shot("people")
-	Screens.open_person(db.find_person_by_name("Hari").id)
-	await shot("person-family")
+	Screens.open_person(db.find_person_by_name("Kishan").id)
+	await shot("person")
+	Screens.open_family(db.find_person_by_name("Hari").khata_id)
+	await shot("family")
+	WorkSheet.open(db.find_person_by_name("Kishan").id, first_mill.id)
+	await shot("work-sheet")
+	app.top_sheet().close()
+	await wait(20)
 	app.switch_tab("balances")
 	await shot("balances")
 	app.switch_tab("more")

@@ -17,6 +17,7 @@ var _draft_total_labels := {}
 var _total_label: Label
 var _hisab_labels := {}
 var _cash_labels: Array = []
+var correcting: Array = []   # drafts of payments that were undone to be corrected
 
 
 func _init() -> void:
@@ -30,7 +31,7 @@ func setup() -> void:
 	if step == 0:
 		for k in _mill_khatas():
 			selected[k] = false
-	else:
+	elif drafts.is_empty():
 		_make_drafts()
 	super.setup()
 
@@ -79,6 +80,13 @@ func on_back() -> void:
 		step = 0
 		scroll_top()
 		refresh()
+	elif not correcting.is_empty():
+		UI.app.confirm(Lang.t("correct_leave_title"), Lang.t("correct_leave_body"), Lang.t("keep_old_payment"), func():
+			for d in correcting:
+				DB.commit_payment(d)
+			correcting.clear()
+			UI.app.pop()
+			UI.app.toast(Lang.t("old_payment_kept")))
 	elif step == 1 and _has_typed():
 		UI.app.confirm(Lang.t("discard_title"), Lang.t("discard_body"), Lang.t("discard"), func(): UI.app.pop(), true)
 	else:
@@ -492,13 +500,13 @@ func _add_work(i: int) -> void:
 	var d: Dictionary = drafts[i]
 	var members := DB.khata_members(d.khata_id)
 	if members.size() == 1:
-		AddWorkSheet.open_for_person(members[0].id)
+		WorkSheet.open(members[0].id, "", func(): DB.rebuild_rows(d); refresh())
 	else:
-		var ids := []
-		for p in DB.people_list(true):
-			if not p.id in DB.khata(d.khata_id).members:
-				ids.append(p.id)
-		PickPersonSheet.open(Lang.t("whose_work"), func(pid): AddWorkSheet.open_for_person(pid), ids)
+		var items := []
+		for p in members:
+			var pid: String = p.id
+			items.append([p.name, "person", func(): WorkSheet.open(pid, "", func(): DB.rebuild_rows(d); refresh())])
+		UI.app.menu(Lang.t("whose_work"), items)
 
 
 # ---------------------------------------------------------------------------
@@ -717,6 +725,7 @@ func _save_all() -> void:
 			refresh()
 			return
 	saved.clear()
+	correcting.clear()
 	for d in drafts:
 		var p := DB.commit_payment(d)
 		if p.has("error"):
@@ -764,6 +773,7 @@ func _build_done(b: VBoxContainer) -> void:
 			continue
 		var pid: String = id
 		var right := UI.hbox(8)
+		right.add_child(UI.small_button(Lang.t("correct"), "secondary", func(): Screens.correct_payment(pid)))
 		right.add_child(UI.small_button(Lang.t("share"), "tinted", func(): Bill.share_payment(pid), "share"))
 		rows.append(UI.row(p.payee_name, Lang.t("paid_x", [Money.group(p.paid)]) + " · " + UI.balance_text(p.new_balance), right, func(): Screens.open_payment(pid), true, UI.avatar(p.payee_name, 36, UI.GREEN_SOFT, UI.GREEN)))
 	UI.add_rows(c, rows)

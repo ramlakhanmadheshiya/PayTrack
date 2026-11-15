@@ -38,7 +38,7 @@ static func payment_row(p: Dictionary, show_name := true) -> Control:
 	var title := name if show_name else Lang.date_full(p.date)
 	var sub := Lang.t("work_period_short", [Lang.period(p.from, p.upto)])
 	if not show_name:
-		sub = Lang.t("work_period_short", [Lang.period(p.from, p.upto)])
+		sub = Lang.period(p.from, p.upto)
 	var right := UI.vbox(0)
 	var paid := UI.label(Lang.t("paid_x", [Money.group(int(p.paid))]) if int(p.paid) > 0 else Lang.t("no_cash"), UI.S_SUB, UI.TEXT, 600, true)
 	paid.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT

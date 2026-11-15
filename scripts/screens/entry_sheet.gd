@@ -90,12 +90,10 @@ func _rebuild() -> void:
 	var date_row := UI.row(Lang.t("date"), "", Lang.day_label(date), func():
 		if _locked: return
 		DateSheet.open(Lang.t("date"), date, func(d): date = d; _rebuild(), [[Lang.t("today"), Dates.today()], [Lang.t("yesterday"), Dates.add_days(Dates.today(), -1)]], "", Dates.today()))
-	var note_box := UI.text_field(Lang.t("note_optional"), note)
-	note_box.editable = not _locked
+	var note_box := TextField.make(note, Lang.t("note_optional"), Lang.t("note_optional"), "plain")
+	note_box.capitalize_words = false
+	note_box.enabled = not _locked
 	note_box.text_changed.connect(func(t): note = t)
-	var nb := StyleBoxEmpty.new()
-	note_box.add_theme_stylebox_override("normal", UI.pad(nb, 16, 12))
-	note_box.add_theme_stylebox_override("focus", UI.pad(StyleBoxEmpty.new(), 16, 12))
 	UI.add_rows(dc, [date_row, note_box])
 	body.add_child(dc)
 	# Save / delete.

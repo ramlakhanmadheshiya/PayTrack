@@ -13,6 +13,7 @@ var tabbar_holder: Control
 var sidebar_holder: Control
 var overlay: Control
 var numpad: NumPad
+var textpad: TextPad
 var toast_holder: Control
 var _wide := false
 var _scale := 1.0
@@ -126,6 +127,8 @@ func _build_shell() -> void:
 	# The number pad sits above sheets so it is never dimmed.
 	numpad = NumPad.new()
 	add_child(numpad)
+	textpad = TextPad.new()
+	add_child(textpad)
 	toast_holder = Control.new()
 	toast_holder.set_anchors_preset(Control.PRESET_FULL_RECT)
 	toast_holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -150,7 +153,8 @@ func has_tabbar_below() -> bool:
 
 
 func _numpad_height() -> float:
-	return numpad.get_combined_minimum_size().y if numpad.visible else 0.0
+	var pad := active_pad()
+	return pad.get_combined_minimum_size().y if pad else 0.0
 
 
 func _layout() -> void:
@@ -179,10 +183,11 @@ func _layout() -> void:
 			sidebar_holder.get_child(0).size = sidebar_holder.size
 		content.position = Vector2(sw, top)
 		content.size = Vector2(vp.x - sw, vp.y - top - np_h)
-	if numpad.visible:
-		var h := numpad.get_combined_minimum_size().y
-		numpad.position = Vector2(0, vp.y - h)
-		numpad.size = Vector2(vp.x, h)
+	var pad := active_pad()
+	if pad:
+		var h := pad.get_combined_minimum_size().y
+		pad.position = Vector2(0, vp.y - h)
+		pad.size = Vector2(vp.x, h)
 	for s in overlay.get_children():
 		if s is Sheet:
 			s.set_bottom_inset(np_h)
@@ -262,11 +267,6 @@ func _build_sidebar() -> void:
 		var tt: String = t
 		tap.tapped.connect(func(): _on_tab_tapped(tt))
 		v.add_child(tap)
-	v.add_child(UI.spacer(16))
-	var actions := UI.vbox(8)
-	actions.add_child(UI.button(Lang.t("add_kharchi"), "primary", func(): Screens.open_entry_sheet(), "plus"))
-	actions.add_child(UI.button(Lang.t("pay_someone"), "tinted", func(): Screens.start_pay_someone(), "pay"))
-	v.add_child(UI.margin(actions, 4, 0, 4, 0))
 	sidebar_holder.add_child(p)
 
 
@@ -376,7 +376,7 @@ func _queue_refresh() -> void:
 
 func _do_refresh() -> void:
 	_refresh_queued = false
-	if numpad.visible:
+	if active_pad():
 		return  # never rebuild a screen while someone is typing in it
 	var p := top_page()
 	if p.has_method("on_data_changed"):
@@ -451,6 +451,23 @@ func toast(text: String, kind := "ok") -> void:
 	tw.tween_callback(p.queue_free)
 
 
+func menu(title: String, items: Array) -> void:
+	## A list of actions (the ⋯ button). items = [[label, icon, callable, danger?], ...]
+	var s := Sheet.new(title)
+	present(s)
+	var c := UI.card()
+	var rows := []
+	for it in items:
+		var danger: bool = it.size() > 3 and it[3]
+		var cb: Callable = it[2]
+		rows.append(UI.row(it[0], "", null, func(): s.close(); cb.call(), false, Icons.make(it[1], UI.RED if danger else UI.ACCENT, 22)))
+		if danger:
+			var l: Label = rows[-1].get_child(0).get_child(1).get_child(0)
+			l.add_theme_color_override("font_color", UI.RED)
+	UI.add_rows(c, rows)
+	s.body.add_child(c)
+
+
 func confirm(title: String, message: String, ok_text: String, cb: Callable, danger := false, details: Control = null) -> void:
 	var s := Sheet.new(title)
 	s.cancel_text = Lang.t("cancel")
@@ -469,10 +486,17 @@ func confirm(title: String, message: String, ok_text: String, cb: Callable, dang
 # Number pad
 # ---------------------------------------------------------------------------
 
-func numpad_open(f: NumField) -> void:
-	var was := numpad.visible
-	numpad.attach(f)
-	numpad.visible = true
+func numpad_open(f: Control) -> void:
+	## Opens the right in-app keyboard for a field: NumPad for NumField,
+	## TextPad for TextField. Only one field is ever active.
+	var pad: Control = textpad if f is TextField else numpad
+	var other: Control = numpad if pad == textpad else textpad
+	if other.visible:
+		other.detach()
+		other.visible = false
+	var was: bool = pad.visible
+	pad.attach(f)
+	pad.visible = true
 	if not was:
 		_build_tabbar()
 	_layout()
@@ -482,12 +506,23 @@ func numpad_open(f: NumField) -> void:
 
 
 func numpad_close() -> void:
-	if numpad == null or not numpad.visible:
-		return
-	numpad.detach()
-	numpad.visible = false
-	_layout()
-	_queue_refresh()
+	var any := false
+	for pad in [numpad, textpad]:
+		if pad != null and pad.visible:
+			pad.detach()
+			pad.visible = false
+			any = true
+	if any:
+		_layout()
+		_queue_refresh()
+
+
+func active_pad() -> Control:
+	if numpad and numpad.visible:
+		return numpad
+	if textpad and textpad.visible:
+		return textpad
+	return null
 
 
 func _ensure_visible(f: Control) -> void:
@@ -501,7 +536,7 @@ func _ensure_visible(f: Control) -> void:
 		n = n.get_parent()
 
 
-func numpad_neighbor(f: NumField, dir: int) -> NumField:
+func numpad_neighbor(f: Control, dir: int) -> Control:
 	var root: Node = top_sheet()
 	if root == null:
 		root = top_page()
@@ -517,7 +552,7 @@ func numpad_neighbor(f: NumField, dir: int) -> NumField:
 
 
 func _collect_fields(n: Node, out: Array) -> void:
-	if n is NumField and n.is_visible_in_tree() and n.enabled:
+	if (n is NumField or n is TextField) and n.is_visible_in_tree() and n.enabled:
 		out.append(n)
 	for c in n.get_children():
 		_collect_fields(c, out)
@@ -539,7 +574,7 @@ func _notification(what: int) -> void:
 		var s := top_sheet()
 		if s:
 			s.close()
-		elif numpad and numpad.visible:
+		elif active_pad():
 			numpad_close()
 		elif stacks.has(current_tab) and stacks[current_tab].size() > 1:
 			top_page().on_back()

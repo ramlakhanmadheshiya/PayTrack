@@ -79,11 +79,12 @@ func date_smart(s: String) -> String:
 
 
 func period(from: String, upto: String) -> String:
+	## Always the exact days: "1 Oct – 15 Nov 2026", "1 – 31 Oct 2026".
 	if from == "" or upto == "":
 		return "—"
 	if Dates.year(from) == Dates.year(upto):
-		if Dates.month(from) == Dates.month(upto) and Dates.day(from) == 1 and upto == Dates.last_of_month(upto):
-			return "%s %d" % [month_long(Dates.month(from)), Dates.year(from)]
+		if Dates.month(from) == Dates.month(upto):
+			return "%d – %d %s %d" % [Dates.day(from), Dates.day(upto), month_short(Dates.month(upto)), Dates.year(upto)]
 		return "%s – %s" % [date_short(from), date_full(upto)]
 	return "%s – %s" % [date_full(from), date_full(upto)]
 

@@ -212,6 +212,22 @@ func set_mill_archived(id: String, archived: bool) -> void:
 	save()
 
 
+func delete_mill(id: String) -> void:
+	## Removes the mill and everyone's work there. Saved payments keep the
+	## mill's name in their own rows, so old bills still read correctly.
+	for i in data.mills.size():
+		if data.mills[i].id == id:
+			data.mills.remove_at(i)
+			break
+	for p in data.people:
+		var keep := []
+		for po in p.posts:
+			if po.mill_id != id:
+				keep.append(po)
+		p.posts = keep
+	save()
+
+
 func add_mill_rate(id: String, from: String, f_rate: int, h_rate: int) -> void:
 	var m := mill(id)
 	var rates: Array = m.rates
@@ -353,6 +369,76 @@ func sorted_posts(pid: String) -> Array:
 			return int(order.get(a.mill_id, 999)) < int(order.get(b.mill_id, 999))
 		return POSTS.find(a.post) < POSTS.find(b.post))
 	return out
+
+
+func posts_at(pid: String, mill_id: String) -> Array:
+	var out := []
+	for post in POSTS:
+		if has_post(pid, mill_id, post):
+			out.append(post)
+	return out
+
+
+func set_posts_at(pid: String, mill_id: String, posts: Array) -> void:
+	## Replaces what this person does at one mill (empty = not working there).
+	var p := person(pid)
+	var keep := []
+	for po in p.posts:
+		if po.mill_id != mill_id:
+			keep.append(po)
+	for post in POSTS:
+		if post in posts:
+			keep.append({"mill_id": mill_id, "post": post})
+	p.posts = keep
+	save()
+
+
+func mills_of(pid: String) -> Array:
+	## Mill ids this person works at, in mill order.
+	var out := []
+	for po in sorted_posts(pid):
+		if not po.mill_id in out:
+			out.append(po.mill_id)
+	return out
+
+
+func can_delete_person(pid: String) -> bool:
+	## Only someone added by mistake: no kharchi, no payments, not in a family.
+	var k := khata_of(pid)
+	if k.is_empty() or k.members.size() > 1:
+		return false
+	for e in data.entries:
+		if e.person_id == pid or e.khata_id == k.id:
+			return false
+	return payments_of(k.id).is_empty()
+
+
+func delete_person(pid: String) -> bool:
+	if not can_delete_person(pid):
+		return false
+	var kid: String = person(pid).khata_id
+	for i in data.people.size():
+		if data.people[i].id == pid:
+			data.people.remove_at(i)
+			break
+	for i in data.khatas.size():
+		if data.khatas[i].id == kid:
+			data.khatas.remove_at(i)
+			break
+	save()
+	return true
+
+
+func family_khatas() -> Array:
+	var out := []
+	for k in active_khatas():
+		if k.members.size() > 1:
+			out.append(k)
+	return out
+
+
+func family_title(kid: String) -> String:
+	return Lang.t("family_title", [khata_title(kid)]) if is_family(kid) else khata_title(kid)
 
 
 func is_master(pid: String) -> bool:
@@ -811,6 +897,29 @@ func undo_payment(pay_id: String) -> bool:
 	data.payments.erase(pay)
 	save()
 	return true
+
+
+func draft_from_payment(pay: Dictionary) -> Dictionary:
+	## A draft with the same numbers as a saved payment (to correct it).
+	var rows: Array = pay.get("rows", []).duplicate(true)
+	for r in rows:
+		r.rate_custom = true
+		r.days_custom = true
+	var d := {
+		"khata_id": pay.khata_id,
+		"date": pay.date,
+		"from": pay.from,
+		"upto": pay.upto,
+		"from_locked": String(pay.get("prev_paid_upto", "")) != "",
+		"upto_custom": true,
+		"rows": rows,
+		"choice": pay.get("choice", "full"),
+		"custom": int(pay.get("paid", 0)),
+		"choice_set": true,
+		"only_mill": "",
+	}
+	rebuild_rows(d)
+	return d
 
 
 func payments_list() -> Array:

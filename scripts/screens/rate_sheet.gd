@@ -60,6 +60,29 @@ func build() -> void:
 	body.add_child(UI.wrapped(UI.label(Lang.t("rate_change_help", [Lang.date_full(from)]), UI.S_CAP, UI.TEXT2)))
 	_err = UI.wrapped(UI.label("", UI.S_SUB, UI.RED, 500))
 	body.add_child(_err)
+	_history()
+
+
+func _history() -> void:
+	## Earlier rates / salaries, newest first (each can be removed if there is more than one).
+	var list: Array = DB.mill(mill_id).get("rates", []) if mill_id != "" else DB.person(person_id).get("salaries", [])
+	if list.size() < 2:
+		return
+	body.add_child(UI.spacer(6))
+	body.add_child(UI.label(Lang.t("rate_history"), UI.S_CAP, UI.TEXT2, 600))
+	var c := UI.card()
+	var rows := []
+	for i in range(list.size() - 1, -1, -1):
+		var r: Dictionary = list[i]
+		var from: String = r.from
+		var when := Lang.t("from_date", [Lang.date_full(from)]) if from > "2000-01-01" else Lang.t("from_start")
+		var value := "F ₹%s · H ₹%s" % [Money.group(r.f), Money.group(r.h)] if mill_id != "" else "₹" + Money.group(r.amount)
+		var right := UI.hbox(6)
+		right.add_child(UI.label(value, UI.S_SUB, UI.TEXT, 500, true))
+		right.add_child(UI.icon_button("trash", func(): _ask_delete(from), UI.RED, 18))
+		rows.append(UI.row(when, "", right, Callable(), false))
+	UI.add_rows(c, rows)
+	body.add_child(c)
 
 
 func _save() -> void:
@@ -76,3 +99,16 @@ func _save() -> void:
 		DB.add_salary(person_id, from, int(salary))
 	close()
 	UI.app.toast(Lang.t("saved"))
+
+
+func _ask_delete(from: String) -> void:
+	UI.app.confirm(Lang.t("delete_rate"), Lang.t("delete_rate_q"), Lang.t("delete"), func(): _delete_history(from), true)
+
+
+func _delete_history(from: String) -> void:
+	if mill_id != "":
+		DB.delete_mill_rate(mill_id, from)
+	else:
+		DB.delete_salary(person_id, from)
+	UI.clear(body)
+	build()

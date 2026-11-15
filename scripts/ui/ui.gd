@@ -512,28 +512,16 @@ static func switch(on: bool, cb: Callable) -> Control:
 	return t
 
 
-static func search_field(placeholder: String, text: String, cb: Callable) -> LineEdit:
-	var e := LineEdit.new()
-	e.placeholder_text = placeholder
-	e.text = text
-	e.clear_button_enabled = true
-	var s := pad(box(Color("#E6E6EC"), 11), 12, 9)
-	e.add_theme_stylebox_override("normal", s)
-	var sf := pad(box(CARD, 11, ACCENT, 2), 12, 9)
-	e.add_theme_stylebox_override("focus", sf)
-	e.right_icon = null
-	e.text_changed.connect(cb)
-	e.custom_minimum_size.y = 42
-	return e
+static func search_field(placeholder: String, text: String, cb: Callable) -> TextField:
+	## Search box typed with the in-app keyboard; cb(text) on every key.
+	var f := TextField.make(text, placeholder, placeholder, "search")
+	f.capitalize_words = false
+	f.text_changed.connect(cb)
+	return f
 
 
-static func text_field(placeholder: String, text := "") -> LineEdit:
-	var e := LineEdit.new()
-	e.placeholder_text = placeholder
-	e.text = text
-	e.custom_minimum_size.y = 50
-	e.select_all_on_focus = false
-	return e
+static func text_field(placeholder: String, text := "", caption := "") -> TextField:
+	return TextField.make(text, placeholder, caption)
 
 
 static func empty_state(icon: String, title: String, body: String, action: Control = null) -> Control:

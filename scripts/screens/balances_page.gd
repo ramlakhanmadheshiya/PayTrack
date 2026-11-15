@@ -33,7 +33,7 @@ func build(b: VBoxContainer) -> void:
 	var rows := []
 	for item in list:
 		var kid: String = item[0]
-		rows.append(Screens.khata_row(kid, func(): Screens.open_person(DB.khata(kid).payee_id)))
+		rows.append(Screens.khata_row(kid, func(): Screens.open_khata(kid)))
 	UI.add_rows(c, rows)
 	b.add_child(UI.margin(c, 16, 0, 16, 0))
 

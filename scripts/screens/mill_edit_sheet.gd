@@ -3,7 +3,7 @@ extends Sheet
 ## Add a mill (name + F/H rates) or rename one.
 
 var mill_id := ""
-var name_box: LineEdit
+var name_box: TextField
 var f_rate := 0.0
 var h_rate := 0.0
 var _err: Label
@@ -19,8 +19,7 @@ static func open(mid: String) -> void:
 func build() -> void:
 	body.add_theme_constant_override("separation", 8)
 	body.add_child(UI.label(Lang.t("mill_name"), UI.S_CAP, UI.TEXT2, 600))
-	name_box = UI.text_field(Lang.t("mill_name_ph"), DB.mill(mill_id).get("name", ""))
-	name_box.text_submitted.connect(func(_t): _save())
+	name_box = UI.text_field(Lang.t("mill_name_ph"), DB.mill(mill_id).get("name", ""), Lang.t("mill_name"))
 	body.add_child(name_box)
 	if mill_id == "":
 		body.add_child(UI.spacer(8))
@@ -39,8 +38,12 @@ func build() -> void:
 		body.add_child(UI.wrapped(UI.label(Lang.t("rates_help"), UI.S_CAP, UI.TEXT2)))
 	_err = UI.wrapped(UI.label("", UI.S_SUB, UI.RED, 500))
 	body.add_child(_err)
-	if not DisplayServer.is_touchscreen_available():
-		name_box.grab_focus.call_deferred()
+	_open_keyboard.call_deferred()
+
+
+func _open_keyboard() -> void:
+	if is_instance_valid(name_box):
+		UI.app.numpad_open(name_box)
 
 
 func _save() -> void:
