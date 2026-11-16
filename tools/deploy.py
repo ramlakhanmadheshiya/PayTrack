@@ -55,9 +55,15 @@ apk = ROOT / "build/android/paytrack.apk"
 if os.environ.get("PUBLISH_APK") == "1":
     if not apk.is_file():
         sys.exit("PUBLISH_APK=1 but no APK at " + str(apk))
-    shutil.copy2(apk, apps / "paytrack/PayTrack.apk")
+    # The version is in the file name, so a phone or Cloudflare can never hand
+    # out an old copy under the new version (same name = cached for hours).
+    apk_name = "PayTrack-%s.apk" % VERSION
+    for old in (apps / "paytrack").glob("PayTrack*.apk"):
+        old.unlink()
+    shutil.copy2(apk, apps / "paytrack" / apk_name)
     (apps / "paytrack/version.json").write_text(json.dumps({
         "version": VERSION,
+        "apk": apk_name,
         "size_mb": round(apk.stat().st_size / 1e6, 1),
         "date": datetime.date.today().strftime("%-d %b %Y"),
     }))
