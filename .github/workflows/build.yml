@@ -167,7 +167,8 @@ jobs:
           fi
           cp $stock/web_nothreads_release.zip .tools/templates/
           export_web
-          python3 tools/web_smoke.py build/web || echo "::warning::Web check did not pass with the normal engine either"
+          # Never publish a website that does not start.
+          python3 tools/web_smoke.py build/web
           ls -l build/web
 
       - name: Publish APK to the "latest" release
