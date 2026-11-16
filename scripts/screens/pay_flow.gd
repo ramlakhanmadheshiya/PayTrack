@@ -348,6 +348,14 @@ func _work_row(i: int, j: int) -> Control:
 			fields.add_child(dl)
 			fields.add_child(UI.flex())
 			v.add_child(fields)
+	if r.has("sheet_yms") and not DB._row_typed(r):
+		var ms := []
+		for ym in r.sheet_yms:
+			ms.append(Lang.month_ym(ym))
+		var hint := UI.hbox(6)
+		hint.add_child(Icons.make("doc", UI.GREEN, 14))
+		hint.add_child(UI.label(Lang.t("from_sheet", [", ".join(ms)]), UI.S_CAP, UI.GREEN, 600))
+		v.add_child(hint)
 	_update_row_label(i, j)
 	return UI.margin(v, 14, 10, 14, 12)
 

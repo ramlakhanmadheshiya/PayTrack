@@ -190,6 +190,51 @@ func _run() -> void:
 		order.append(DB.person(w.person_id).name)
 	check(order == ["Worker A", "Worker B", "Head C", "Member D", "Master E"], "sheet keeps the order added")
 	check(DB.sheet_worker_count(sh.id) == 5, "five on the sheet")
+	# Attendance written on the sheet before payday fills the payment page.
+	var wa := DB.find_person_by_name("Worker A")
+	DB.sheet_set_att(sh.id, mid, wa.id, "F", "att", 24.0)
+	DB.sheet_set_att(sh.id, mid, wa.id, "F", "hr", 6.0)
+	DB.sheet_set_att(sh.id, mid, wa.id, "H", "att", 3.0)
+	check(DB.sheet_filled_count(sh.id, mid) == 1, "one worker has attendance written")
+	var dr := DB.make_draft(wa.khata_id, "2026-11-15", "2026-10-31")
+	var got := {}
+	for r in dr.rows:
+		got[r.post] = [r.att, r.hr]
+	check(got.get("F", []) == [24.0, 6.0] and got.get("H", []) == [3.0, 0.0], "payment filled from the sheet (got %s)" % [got])
+	for r in dr.rows:
+		if r.post == "F":
+			r.att = 20.0
+	DB.rebuild_rows(dr)
+	for r in dr.rows:
+		if r.post == "F":
+			check(r.att == 20.0, "number changed on the payment page is kept")
+	Screens.start_pay_khata(wa.khata_id)
+	await wait(6)
+	var hint_seen := false
+	for l in app.top_page().find_children("*", "Label", true, false):
+		if l.text == Lang.t("from_sheet", ["Oct 2026"]):
+			hint_seen = true
+	check(hint_seen, "payment page says the attendance came from the Oct sheet")
+	app.go_tab_root("salary")
+	await wait(6)
+	var dr2 := DB.make_draft(wa.khata_id, "2026-11-15", "2026-09-30")
+	var empty := true
+	for r in dr2.rows:
+		if r.att > 0:
+			empty = false
+	check(empty, "other months are not filled from the Oct sheet")
+	SheetPage.open_mill(sh.id, mid)
+	await wait(4)
+	var nfields := 0
+	for n2 in app.top_page().body.find_children("*", "", true, false):
+		if n2 is NumField:
+			nfields += 1
+	check(nfields == 17, "sheet mill page has attendance boxes (got %d)" % nfields)
+	app.pop()
+	await wait(4)
+	for post in ["F", "H"]:
+		DB.sheet_set_att(sh.id, mid, wa.id, post, "att", 0.0)
+		DB.sheet_set_att(sh.id, mid, wa.id, post, "hr", 0.0)
 	# Next month: repeat October's mills and worker list.
 	var sh2 := DB.add_sheet("2026-11")
 	check(DB.sheet_before(sh2.id).get("id", "") == sh.id, "previous month found")
@@ -452,6 +497,22 @@ func _run() -> void:
 		if n.mouse_filter == Control.MOUSE_FILTER_STOP and not n is Tap:
 			blocking += 1
 	check(blocking == 0, "activity list does not block scrolling (%d)" % blocking)
+	app.pop()
+	await wait(4)
+	Lang.set_lang("en", false)
+	check(Lang.show("Worker A") == "Worker A", "English shows names as typed")
+	Lang.set_lang("hi", false)
+	await wait(4)
+	check(Lang.show("Pay Worker A now") == "Pay वोर्केर अ now", "Hindi writes names in Hindi letters (got %s)" % Lang.show("Pay Worker A now"))
+	DB.set_hindi_spelling("person", DB.find_person_by_name("Worker A").id, "Varakar")
+	check(Lang.name_of("Worker A") == "वरकर", "own Hindi spelling is used (got %s)" % Lang.name_of("Worker A"))
+	Screens.open_person(DB.find_person_by_name("Worker A").id)
+	await wait(6)
+	var hindi_title := false
+	for l in app.top_page().find_children("*", "Label", true, false):
+		if l.text == "वरकर":
+			hindi_title = true
+	check(hindi_title, "person page shows the Hindi name")
 	app.pop()
 	await wait(4)
 	Lang.set_lang("en", false)

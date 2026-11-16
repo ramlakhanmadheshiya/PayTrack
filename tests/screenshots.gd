@@ -81,6 +81,12 @@ func _run() -> void:
 	app.switch_tab("salary")
 	await shot("salary")
 	var sh: Dictionary = db.sheets_list()[0]
+	var ws: Array = db.sheet_workers(sh.id, first_mill.id)
+	for k in mini(3, ws.size()):
+		for post in ws[k].posts:
+			db.sheet_set_att(sh.id, first_mill.id, ws[k].person_id, post, "att", 26.0 - k)
+			if post != "BM":
+				db.sheet_set_att(sh.id, first_mill.id, ws[k].person_id, post, "hr", 4.0)
 	SalaryPage.open_sheet(sh.id)
 	await shot("sheet")
 	SheetPage.open_mill(sh.id, first_mill.id)

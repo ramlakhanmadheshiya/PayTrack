@@ -58,7 +58,7 @@ func _ready() -> void:
 	v.add_child(footer)
 	build()
 	if _title_label:
-		_title_label.text = title
+		_title_label.text = Lang.show(title)
 	get_viewport().size_changed.connect(_layout)
 	body.resized.connect(_layout)
 	footer.resized.connect(_layout)

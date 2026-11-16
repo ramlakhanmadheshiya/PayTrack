@@ -66,7 +66,7 @@ func build(b: VBoxContainer) -> void:
 func _menu() -> void:
 	var p := DB.person(person_id)
 	var k := DB.khata_of(person_id)
-	var items := [[Lang.t("rename"), "edit", _rename]]
+	var items := [[Lang.t("rename") + " · " + Lang.t("hindi_name"), "edit", _rename]]
 	if DB.is_master(person_id) or not p.get("salaries", []).is_empty():
 		items.append([Lang.t("edit_salary") + " (₹" + Money.group(DB.salary_on(person_id, Dates.today())) + ")", "rupee", func(): RateSheet.open_salary(person_id)])
 	if DB.is_family(k.id):

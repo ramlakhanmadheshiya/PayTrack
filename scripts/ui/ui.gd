@@ -445,7 +445,7 @@ static func avatar(name: String, size := 40, bg := ACCENT_SOFT, fg := ACCENT) ->
 	var p := PanelContainer.new()
 	p.add_theme_stylebox_override("panel", box(bg, size / 2))
 	p.custom_minimum_size = Vector2(size, size)
-	var l := label(name.substr(0, 1).to_upper(), int(size * 0.42), fg, 600)
+	var l := label(Lang.name_of(name).substr(0, 1).to_upper(), int(size * 0.42), fg, 600)
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	p.add_child(l)
 	p.size_flags_vertical = Control.SIZE_SHRINK_CENTER

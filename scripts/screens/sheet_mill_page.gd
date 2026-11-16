@@ -52,31 +52,59 @@ func _fill() -> void:
 	var q := query.strip_edges().to_lower()
 	_list.add_child(UI.section_title(Lang.t("workers_n", [workers.size()]), UI.small_button(Lang.t("add_worker"), "tinted", func(): add_worker(sheet_id, mill_id), "plus")))
 	var c := UI.card()
-	var rows := []
+	var body := UI.card_body(c)
 	var n := 0
+	var shown := 0
 	for w in workers:
 		n += 1
 		var p := DB.person(w.person_id)
 		if q != "" and not q in String(p.name).to_lower():
 			continue
-		var pid: String = w.person_id
-		var badges := UI.hbox(4)
-		for post in w.posts:
-			badges.add_child(UI.badge(post))
-		var kid: String = p.khata_id
-		var sub := Lang.t("in_family_of", [DB.khata_title(kid)]) if DB.is_family(kid) else UI.balance_text(DB.balance(kid))
-		var num := UI.label(str(n), UI.S_CAP, UI.TEXT3, 600, true)
-		num.custom_minimum_size.x = 22
-		num.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-		var lead := UI.hbox(8)
-		lead.add_child(num)
-		lead.add_child(UI.avatar(p.name, 36))
-		rows.append(UI.row(p.name, sub, badges, func(): _worker_menu(pid), true, lead))
-	if rows.is_empty():
-		UI.card_body(c).add_child(UI.margin(UI.wrapped(UI.label(Lang.t("no_match") if q != "" else Lang.t("no_workers"), UI.S_SUB, UI.TEXT2)), 16, 14, 16, 14))
-	else:
-		UI.add_rows(c, rows)
+		if shown > 0:
+			body.add_child(UI.line(16))
+		shown += 1
+		body.add_child(_worker_block(w, p, n))
+	if shown == 0:
+		body.add_child(UI.margin(UI.wrapped(UI.label(Lang.t("no_match") if q != "" else Lang.t("no_workers"), UI.S_SUB, UI.TEXT2)), 16, 14, 16, 14))
 	_list.add_child(UI.margin(c, 16, 0, 16, 0))
+	if not workers.is_empty():
+		_list.add_child(UI.footnote(Lang.t("sheet_att_help")))
+
+
+func _worker_block(w: Dictionary, p: Dictionary, n: int) -> Control:
+	## Name (tap for options) and the month's attendance for each post.
+	var pid: String = w.person_id
+	var v := UI.vbox(0)
+	var kid: String = p.khata_id
+	var sub := Lang.t("in_family_of", [DB.khata_title(kid)]) if DB.is_family(kid) else UI.balance_text(DB.balance(kid))
+	var num := UI.label(str(n), UI.S_CAP, UI.TEXT3, 600, true)
+	num.custom_minimum_size.x = 22
+	num.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	var lead := UI.hbox(8)
+	lead.add_child(num)
+	lead.add_child(UI.avatar(p.name, 36))
+	v.add_child(UI.row(p.name, sub, Icons.make("more", UI.TEXT2, 20), func(): _worker_menu(pid), false, lead))
+	var cap := "%s · %s" % [p.name, DB.mill(mill_id).get("name", "")]
+	for post in w.posts:
+		var a := DB.sheet_att(sheet_id, mill_id, pid, post)
+		var h := UI.hbox(8)
+		var badge := UI.badge(post)
+		h.add_child(badge)
+		h.add_child(_num(a.att, Lang.t("att"), cap + " " + post + " · " + Lang.t("attendance"), pid, post, "att"))
+		if post != "BM":
+			h.add_child(_num(a.hr, Lang.t("hr"), cap + " " + post + " · " + Lang.t("hours"), pid, post, "hr"))
+		h.add_child(UI.flex())
+		v.add_child(UI.margin(h, 46, 0, 12, 10))
+	return v
+
+
+func _num(value: float, label: String, caption: String, pid: String, post: String, key: String) -> Control:
+	var h := UI.hbox(6)
+	h.add_child(UI.label(label, UI.S_CAP, UI.TEXT2, 600))
+	var f := NumField.make(value, caption, true, false, 62)
+	f.value_changed.connect(func(val): DB.sheet_set_att(sheet_id, mill_id, pid, post, key, val))
+	h.add_child(f)
+	return h
 
 
 static func add_worker(sid: String, mid: String) -> void:

@@ -7,6 +7,7 @@ var name_box: TextField
 var f_rate := 0.0
 var h_rate := 0.0
 var _err: Label
+var hi_field: TextField
 
 
 static func open(mid: String) -> void:
@@ -25,6 +26,7 @@ func build() -> void:
 	body.add_child(UI.label(Lang.t("mill_name"), UI.S_CAP, UI.TEXT2, 600))
 	name_box = UI.text_field(Lang.t("mill_name_ph"), DB.mill(mill_id).get("name", ""), Lang.t("mill_name"))
 	body.add_child(name_box)
+	hi_field = RenameSheet.hindi_field(body, String(DB.mill(mill_id).get("hi", "")), name_box)
 	body.add_child(UI.spacer(8))
 	var c := UI.card()
 	var rf := NumField.make(f_rate, Lang.t("rate_f_caption"), false, true, 110)
@@ -40,6 +42,7 @@ func build() -> void:
 	body.add_child(UI.wrapped(UI.label(Lang.t("rates_help") if mill_id == "" else Lang.t("rate_change_note"), UI.S_CAP, UI.TEXT2)))
 	_err = UI.wrapped(UI.label("", UI.S_SUB, UI.RED, 500))
 	body.add_child(_err)
+	body.add_child(UI.spacer(8))
 	if mill_id != "":
 		var archived: bool = DB.mill(mill_id).get("archived", false)
 		var hc := UI.card()
@@ -72,10 +75,12 @@ func _save() -> void:
 		_err.text = Lang.t("err_rates")
 		return
 	if mill_id == "":
-		DB.add_mill(n, int(f_rate), int(h_rate))
+		var nm: Dictionary = DB.add_mill(n, int(f_rate), int(h_rate))
+		DB.set_hindi_spelling("mill", nm.id, hi_field.text)
 		close()
 		UI.app.toast(Lang.t("mill_added", [n]))
 	else:
+		DB.set_hindi_spelling("mill", mill_id, hi_field.text)
 		DB.rename_mill(mill_id, n)
 		DB.set_mill_rates(mill_id, int(f_rate), int(h_rate))
 		close()

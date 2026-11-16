@@ -24,6 +24,7 @@ func _initialize() -> void:
 	db.reset_for_tests()
 	test_dates()
 	test_money()
+	test_translit()
 	test_sheet_rows()
 	test_master_pay()
 	test_cases()
@@ -34,6 +35,16 @@ func _initialize() -> void:
 	test_export_import()
 	print("\nCore tests: %d passed, %d failed" % [passed, failed])
 	quit(1 if failed > 0 else 0)
+
+
+func test_translit() -> void:
+	eq(Translit.to_hi("Kishan"), "किशन", "Kishan")
+	eq(Translit.to_hi("Ganga Mill"), "गंगा मिल", "mill name")
+	eq(Translit.to_hi("Raamu"), "रामू", "long vowels")
+	eq(Translit.to_hi("Suneel"), "सुनील", "ee")
+	eq(Translit.to_hi("Shyam"), "श्याम", "common name")
+	eq(Translit.to_hi("PinTu"), "पिंटू", "capital T gives ट")
+	eq(Translit.to_hi("Mill 2"), "मिल 2", "numbers stay English")
 
 
 func test_dates() -> void:

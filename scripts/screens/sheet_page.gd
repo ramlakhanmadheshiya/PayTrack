@@ -32,7 +32,11 @@ func build(b: VBoxContainer) -> void:
 		for mid in ids:
 			var m := DB.mill(mid)
 			var id: String = mid
-			rows.append(UI.row(m.name, Lang.t("n_workers", [DB.sheet_workers(sheet_id, mid).size()]), null, func(): open_mill(sheet_id, id), true, Icons.make("mill", UI.ACCENT, 22)))
+			var nw := DB.sheet_workers(sheet_id, mid).size()
+			var sub := Lang.t("n_workers", [nw])
+			if nw > 0:
+				sub += " · " + Lang.t("n_filled", [DB.sheet_filled_count(sheet_id, mid), nw])
+			rows.append(UI.row(m.name, sub, null, func(): open_mill(sheet_id, id), true, Icons.make("mill", UI.ACCENT, 22)))
 		UI.add_rows(c, rows)
 	b.add_child(UI.margin(c, 16, 0, 16, 0))
 	var prev := DB.sheet_before(sheet_id)

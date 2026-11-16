@@ -36,6 +36,7 @@ func _ready() -> void:
 	_build_shell()
 	DB.changed.connect(_queue_refresh)
 	Lang.changed.connect(_on_lang)
+	get_tree().node_added.connect(_on_node_added)
 	for t in TABS:
 		stacks[t] = []
 	for t in TABS:
@@ -383,6 +384,16 @@ func _do_refresh() -> void:
 		p.on_data_changed()
 	else:
 		p.refresh()
+
+
+func _on_node_added(n: Node) -> void:
+	## In Hindi, names in every label are shown in Hindi letters (numbers stay).
+	if n is Label and Lang.lang == "hi" and not n.has_meta("raw"):
+		var t: String = n.text
+		if t != "":
+			var h := Lang.show(t)
+			if h != t:
+				n.text = h
 
 
 func _on_lang() -> void:

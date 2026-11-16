@@ -39,6 +39,7 @@ func _ready() -> void:
 	if style == "search":
 		h.add_child(Icons.make("search", UI.TEXT3, 18))
 	_label = UI.label("", font_size, UI.TEXT, 400)
+	_label.set_meta("raw", true)   # what is typed is shown as typed
 	_label.text_overrun_behavior = TextServer.OVERRUN_NO_TRIMMING
 	_label.clip_text = true
 	_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL

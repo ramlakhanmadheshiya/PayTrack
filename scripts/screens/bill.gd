@@ -215,7 +215,7 @@ static func share_payment(pay_id: String) -> void:
 	var img := vp.get_texture().get_image()
 	var page_h := int(EXPORT_W * PAGE_RATIO)
 	var base := "Bill-%s-%s" % [String(pay.payee_name).replace(" ", "-"), pay.date]
-	var text := Lang.t("bill_share_text", [pay.payee_name, Lang.date_full(pay.date)])
+	var text := Lang.show(Lang.t("bill_share_text", [pay.payee_name, Lang.date_full(pay.date)]))
 	if h <= int(page_h * 1.1):
 		Platform.share_bytes(img.save_png_to_buffer(), base + ".png", "image/png", text)
 	else:

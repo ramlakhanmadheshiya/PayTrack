@@ -371,6 +371,19 @@ func rename_person(id: String, name: String) -> void:
 	save()
 
 
+func set_hindi_spelling(kind: String, id: String, spelling: String) -> void:
+	## kind "person" or "mill". Empty = written from the English name.
+	var rec := person(id) if kind == "person" else mill(id)
+	if rec.is_empty():
+		return
+	spelling = spelling.strip_edges()
+	if spelling == "":
+		rec.erase("hi")
+	else:
+		rec.hi = spelling
+	save()
+
+
 func set_person_phone(id: String, phone: String) -> void:
 	person(id).phone = phone.strip_edges()
 	save()
@@ -831,8 +844,10 @@ func rebuild_rows(d: Dictionary) -> void:
 	for p in khata_members(d.khata_id):
 		for po in sorted_posts(p.id):
 			var r := _blank_row(p.id, po.mill_id, po.post, d)
+			_fill_from_sheets(r, d)
 			var key := _row_key(r)
-			if old.has(key):
+			# Numbers typed on the payment page win over the sheet's.
+			if old.has(key) and _row_typed(old[key]):
 				var o: Dictionary = old[key]
 				r.att = o.get("att", 0.0)
 				r.hr = o.get("hr", 0.0)
@@ -852,6 +867,40 @@ func rebuild_rows(d: Dictionary) -> void:
 			r.amount = Calc.row_amount(r)
 			rows.append(r)
 	d.rows = rows
+
+
+func _fill_from_sheets(r: Dictionary, d: Dictionary) -> void:
+	## Attendance written ahead of time on the salary sheets.
+	var sa := sheet_att_for(r.person_id, r.mill_id, r.post, d.from, d.upto)
+	if sa.yms.is_empty():
+		return
+	r.att = sa.att
+	r.hr = sa.hr if r.post != "BM" else 0.0
+	for mo in r.months:
+		if sa.months.has(mo.ym):
+			mo.att = sa.months[mo.ym]
+	# A master's pay over two months is worked out month by month.
+	if r.post == "BM" and r.months.size() > 1:
+		r.mode = "split"
+	r.sheet_yms = sa.yms
+	r.sheet_att = r.att
+	r.sheet_hr = r.hr
+	r.sheet_months = sa.months.duplicate()
+
+
+func _row_typed(o: Dictionary) -> bool:
+	## True when the row's numbers were changed on the payment page.
+	if o.get("rate_custom", false) or o.get("days_custom", false):
+		return true
+	if not o.has("sheet_yms"):
+		return Calc.row_has_work(o) or o.get("mode", "normal") != "normal"
+	if float(o.get("att", 0.0)) != float(o.get("sheet_att", 0.0)) or float(o.get("hr", 0.0)) != float(o.get("sheet_hr", 0.0)):
+		return true
+	var sm: Dictionary = o.get("sheet_months", {})
+	for mo in o.get("months", []):
+		if float(mo.get("att", 0.0)) != float(sm.get(mo.ym, 0.0)):
+			return true
+	return false
 
 
 func _row_key(r: Dictionary) -> String:
@@ -1233,6 +1282,74 @@ func sheet_set_worker(sid: String, mid: String, pid: String, posts: Array) -> vo
 	log_event("sheet_worker_added", [ym, mill(mid).name, person(pid).name, " ".join(ordered)])
 	_remember_posts(pid, mid, ordered)
 	save()
+
+
+# Attendance written on the sheet ahead of payday. The payment page fills
+# itself from it (and can still be changed there).
+
+func _sheet_worker(sid: String, mid: String, pid: String) -> Dictionary:
+	for w in _sheet_mill(sid, mid).get("workers", []):
+		if w.person_id == pid:
+			return w
+	return {}
+
+
+func sheet_att(sid: String, mid: String, pid: String, post: String) -> Dictionary:
+	## {att, hr} for one worker's post that month (0 when nothing written yet).
+	var w := _sheet_worker(sid, mid, pid)
+	var a: Dictionary = w.get("att", {}).get(post, {})
+	return {"att": float(a.get("att", 0.0)), "hr": float(a.get("hr", 0.0))}
+
+
+func sheet_set_att(sid: String, mid: String, pid: String, post: String, key: String, value: float) -> void:
+	var w := _sheet_worker(sid, mid, pid)
+	if w.is_empty():
+		return
+	if not w.has("att"):
+		w.att = {}
+	if not w.att.has(post):
+		w.att[post] = {"att": 0.0, "hr": 0.0}
+	w.att[post][key] = maxf(value, 0.0)
+	save()
+
+
+func sheet_filled_count(sid: String, mid: String) -> int:
+	## Workers on this mill's list with some attendance written.
+	var n := 0
+	for w in sheet_workers(sid, mid):
+		for post in w.get("att", {}):
+			var a: Dictionary = w.att[post]
+			if float(a.get("att", 0.0)) > 0 or float(a.get("hr", 0.0)) > 0:
+				n += 1
+				break
+	return n
+
+
+func sheet_att_for(pid: String, mid: String, post: String, from: String, upto: String) -> Dictionary:
+	## Attendance written on the salary sheets for the months in from..upto:
+	## {att, hr, months: {ym: att}, yms: [ym...]} (yms empty = nothing written).
+	var out := {"att": 0.0, "hr": 0.0, "months": {}, "yms": []}
+	if from == "" or upto == "":
+		return out
+	var ym_from := from.substr(0, 7)
+	var ym_upto := upto.substr(0, 7)
+	for sh in data.get("sheets", []):
+		if sh.ym < ym_from or sh.ym > ym_upto:
+			continue
+		var w := _sheet_worker(sh.id, mid, pid)
+		if w.is_empty() or not w.get("att", {}).has(post):
+			continue
+		var a: Dictionary = w.att[post]
+		var att := float(a.get("att", 0.0))
+		var hr := float(a.get("hr", 0.0))
+		if att <= 0 and hr <= 0:
+			continue
+		out.att += att
+		out.hr += hr
+		out.months[sh.ym] = float(out.months.get(sh.ym, 0.0)) + att
+		out.yms.append(sh.ym)
+	out.yms.sort()
+	return out
 
 
 func _remember_posts(pid: String, mid: String, posts: Array) -> void:
