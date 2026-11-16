@@ -134,13 +134,41 @@ jobs:
           godot --headless --path . --export-release Android build/android/paytrack.apk
           ls -l build/android
 
+      - name: Slim web engine (built by the "Slim web engine" workflow)
+        id: slim
+        uses: actions/cache/restore@v4
+        with:
+          path: slim-web-template
+          key: slim-web-${{ env.GODOT_RELEASE }}-${{ hashFiles('tools/web_template_flags.txt') }}
+
+      - name: Browser for the web check
+        run: |
+          pip install -q playwright
+          python3 -m playwright install --with-deps chromium > /dev/null
+
       - name: Export web build
         run: |
           mkdir -p .tools/templates build/web
-          cp ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable/web_nothreads_release.zip .tools/templates/
-          cp ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable/web_nothreads_debug.zip .tools/templates/
-          godot --headless --path . --export-release Web build/web/index.html
-          python3 tools/prepare_web.py
+          stock=~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
+          cp $stock/web_nothreads_debug.zip .tools/templates/
+          export_web() {
+            rm -rf build/web && mkdir -p build/web
+            godot --headless --path . --export-release Web build/web/index.html
+            python3 tools/prepare_web.py
+          }
+          if [ -f slim-web-template/web_nothreads_release.zip ]; then
+            cp slim-web-template/web_nothreads_release.zip .tools/templates/
+            export_web
+            if python3 tools/web_smoke.py build/web; then
+              echo "Using the slim web engine"; ls -l build/web
+              exit 0
+            fi
+            echo "::warning::Slim web engine failed the check; using the normal one"
+          fi
+          cp $stock/web_nothreads_release.zip .tools/templates/
+          export_web
+          python3 tools/web_smoke.py build/web || echo "::warning::Web check did not pass with the normal engine either"
+          ls -l build/web
 
       - name: Publish APK to the "latest" release
         env:

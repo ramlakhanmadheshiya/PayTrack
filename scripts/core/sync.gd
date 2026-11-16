@@ -17,7 +17,7 @@ const URL := "https://paytrack.theramlakhan.com"
 const COLS := ["mills", "people", "khatas", "entries", "payments", "sheets", "log"]
 const STATE_PATH := "user://sync.json"
 const BEFORE_JOIN_PATH := "user://paytrack.before-sharing.json"
-const POLL_SECONDS := 20.0
+const POLL_SECONDS := 30.0
 const PUSH_CHUNK := 400
 
 var url := URL
@@ -41,6 +41,9 @@ var _debounce: Timer
 var _poll: Timer
 var _snapshot := {}   # viewers: the data as the server has it
 var replaced_local := false   # the last join put this phone's own data aside
+var _local_dirty := true      # something changed on this phone since the last send
+var _state_dirty := false     # the state file needs writing
+var _foreground := true
 
 
 func _ready() -> void:
@@ -115,6 +118,7 @@ func load_state() -> void:
 
 
 func save_state() -> void:
+	_state_dirty = false
 	if not save_state_enabled:
 		return
 	var f := FileAccess.open(state_path, FileAccess.WRITE)
@@ -202,10 +206,10 @@ func join(code: String, recovery := false) -> String:
 		DB.data.settings = keep_settings
 		DB.save()
 		_applying = false
+	_local_dirty = true
 	save_state()
 	_poll.start()
-	_set_status("syncing")
-	await sync_now()
+	await sync_now(true)
 	return ""
 
 
@@ -260,17 +264,35 @@ func _on_db_changed() -> void:
 	if read_only():
 		_undo_viewer_change()
 		return
+	_local_dirty = true
 	_debounce.start()
 
 
-func sync_now() -> void:
+func set_foreground(on: bool) -> void:
+	## No checking while the app is in the background (saves battery).
+	_foreground = on
+	if not enabled():
+		return
+	if on:
+		_poll.start()
+		sync_now()
+	else:
+		_poll.stop()
+		if _state_dirty:
+			save_state()
+
+
+func sync_now(manual := false) -> void:
+	## A quiet check (every 30 s) changes nothing on screen unless something
+	## arrived. "manual" (tapping the status row) shows "Syncing…".
 	if not enabled():
 		return
 	if _busy:
 		_again = true
 		return
 	_busy = true
-	_set_status("syncing")
+	if manual:
+		_set_status("syncing")
 	var ok := await _push()
 	if ok and enabled():
 		ok = await _pull()
@@ -279,7 +301,8 @@ func sync_now() -> void:
 		return
 	if ok:
 		last_ok = int(Time.get_unix_time_from_system())
-		save_state()
+		if _state_dirty:
+			save_state()
 		_set_status("ok")
 	elif status != "removed":
 		_set_status("offline")
@@ -314,8 +337,9 @@ func _diff() -> Array:
 
 
 func _push() -> bool:
-	if read_only():
+	if read_only() or not _local_dirty:
 		return true
+	_local_dirty = false
 	var changes := _diff()
 	var i := 0
 	while i < changes.size():
@@ -324,11 +348,9 @@ func _push() -> bool:
 		for ch in chunk:
 			send.append({"c": ch.c, "id": ch.id, "d": ch.get("d"), "del": ch.get("del", false)})
 		var r := await _http(HTTPClient.METHOD_POST, "/sync", {"changes": send})
-		if r.code == 0:
-			return false
-		if _check_access(r.code, r.json):
-			return false
 		if r.code != 200:
+			_local_dirty = true   # try again next time
+			_check_access(r.code, r.json)
 			return false
 		var refused := {}
 		for rj in r.json.get("rejected", []):
@@ -344,7 +366,7 @@ func _push() -> bool:
 				hashes[ch.c][ch.id] = ch.fp
 		if not refused.is_empty():
 			_apply_refused(r.json.get("rejected", []), r.json.get("server", []))
-		save_state()
+		_state_dirty = true
 		i += PUSH_CHUNK
 	return true
 
@@ -364,6 +386,7 @@ func _apply_refused(rejected: Array, server: Array) -> void:
 
 
 func _pull() -> bool:
+	var got_any := false
 	var guard := 0
 	while guard < 1000:
 		guard += 1
@@ -376,11 +399,14 @@ func _pull() -> bool:
 			return false
 		if r.json.has("me"):
 			var was := role()
+			var was_name := my_name()
 			me = r.json.me
-			if role() != was:
+			if role() != was or my_name() != was_name:
+				_state_dirty = true
 				status_changed.emit()
-		if r.json.has("users"):
+		if r.json.has("users") and JSON.stringify(r.json.users) != JSON.stringify(users):
 			users = r.json.users
+			_state_dirty = true
 		var recs: Array = r.json.get("records", [])
 		if not recs.is_empty():
 			_applying = true
@@ -397,12 +423,15 @@ func _pull() -> bool:
 					DB.data.log = DB.data.log.slice(DB.data.log.size() - DB.LOG_MAX)
 			if any:
 				DB.save()
+				got_any = true
 			_applying = false
-		rev = int(r.json.get("rev", rev))
-		save_state()
+		var new_rev := int(r.json.get("rev", rev))
+		if new_rev != rev:
+			rev = new_rev
+			_state_dirty = true
 		if not r.json.get("more", false):
 			break
-	if read_only():
+	if read_only() and (got_any or _snapshot.is_empty()):
 		_snapshot = _collections_copy()
 	return true
 

@@ -47,6 +47,9 @@ func _ready() -> void:
 	Platform.setup()
 	if PinLock.is_on():
 		_lock.call_deferred()
+	if OS.has_feature("web"):
+		# For the automatic check before publishing: the first screen is up.
+		(func(): JavaScriptBridge.eval("window.ptReady = true;")).call_deferred()
 
 
 # ---------------------------------------------------------------------------
@@ -604,13 +607,15 @@ func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_PAUSED or what == NOTIFICATION_APPLICATION_FOCUS_OUT:
 		if _away_since == 0:
 			_away_since = int(Time.get_unix_time_from_system())
+			Sync.set_foreground(false)
 	elif what == NOTIFICATION_APPLICATION_RESUMED or what == NOTIFICATION_APPLICATION_FOCUS_IN:
 		var away := int(Time.get_unix_time_from_system()) - _away_since if _away_since > 0 else 0
+		var was_away := _away_since > 0
 		_away_since = 0
 		if away >= PinLock.AWAY_SECONDS:
 			_lock()
-		if away > 2 and Sync.enabled():
-			Sync.sync_now()
+		if was_away:
+			Sync.set_foreground(true)
 	if what == NOTIFICATION_WM_GO_BACK_REQUEST:
 		if is_instance_valid(_lock_screen):
 			return

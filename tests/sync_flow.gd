@@ -25,6 +25,9 @@ func _ready() -> void:
 	Sync.save_state_enabled = false
 	Sync.url = BASE
 	Sync.load_state()
+	# Only the test decides when to sync (the app's timers would sync the wrong phone).
+	Sync._debounce.wait_time = 9999.0
+	Sync._poll.wait_time = 9999.0
 	Sync.notice.connect(func(t, m): notices.append(t))
 	_run.call_deferred()
 	get_tree().create_timer(90.0).timeout.connect(func():
@@ -37,6 +40,7 @@ func phone() -> Dictionary:
 
 
 func use(p: Dictionary) -> void:
+	Sync._local_dirty = true
 	Sync._applying = true
 	DB.data = p.data.duplicate(true)
 	Sync._applying = false

@@ -183,25 +183,29 @@ static func export_backup() -> void:
 
 static func import_backup() -> void:
 	if OS.has_feature("web"):
-		_web_cb = JavaScriptBridge.create_callback(func(args): _got_text(String(args[0])))
+		_web_cb = JavaScriptBridge.create_callback(func(args): _got_text(String(args[0]), "web"))
 		var win = JavaScriptBridge.get_interface("window")
 		win.ptPick(_web_cb)
 		return
+	# The system file picker built into Godot (Android, iPad, desktop). No type
+	# filter: phones grey out files whose type they do not know.
+	if DisplayServer.has_feature(DisplayServer.FEATURE_NATIVE_DIALOG_FILE):
+		var filters := PackedStringArray() if OS.has_feature("mobile") else PackedStringArray(["*.json, *.paytrack ; PayTrack"])
+		var err := DisplayServer.file_dialog_show(Lang.t("import_backup"), OS.get_system_dir(OS.SYSTEM_DIR_DOWNLOADS), "", false,
+			DisplayServer.FILE_DIALOG_MODE_OPEN_FILE, filters,
+			func(status: bool, paths: PackedStringArray, _idx: int):
+				if status and paths.size() > 0:
+					_got_file.call_deferred(paths[0]))
+		if err == OK:
+			return
 	var a := _android()
 	if a:
 		if not _android_connected:
-			a.connect("file_picked", func(path: String): _got_file(path))
-			a.connect("pick_failed", func(msg: String): UI.app.toast(Lang.t("import_failed"), "error"))
+			a.connect("file_picked", func(path: String): _got_file.call_deferred(path))
+			a.connect("pick_failed", func(msg: String): _fail.call_deferred("picker: " + msg))
 			_android_connected = true
 		if not a.pickFile():
-			UI.app.toast(Lang.t("import_failed"), "error")
-		return
-	if DisplayServer.has_feature(DisplayServer.FEATURE_NATIVE_DIALOG_FILE):
-		DisplayServer.file_dialog_show(Lang.t("import_backup"), OS.get_system_dir(OS.SYSTEM_DIR_DOWNLOADS), "", false,
-			DisplayServer.FILE_DIALOG_MODE_OPEN_FILE, PackedStringArray(["*.paytrack, *.json ; PayTrack"]),
-			func(status: bool, paths: PackedStringArray, _idx: int):
-				if status and paths.size() > 0:
-					_got_file(paths[0]))
+			_fail("picker did not open")
 		return
 	var fd := FileDialog.new()
 	fd.file_mode = FileDialog.FILE_MODE_OPEN_FILE
@@ -212,17 +216,22 @@ static func import_backup() -> void:
 	fd.popup_centered_ratio(0.8)
 
 
+static func _fail(reason: String) -> void:
+	## Says why, so the problem can be found.
+	UI.app.toast(Lang.t("import_failed") + " (" + reason + ")", "error")
+
+
 static func _got_file(path: String) -> void:
 	var f := FileAccess.open(path, FileAccess.READ)
 	if f == null:
-		UI.app.toast(Lang.t("import_failed"), "error")
+		_fail("cannot read file, error %d" % FileAccess.get_open_error())
 		return
-	_got_text(f.get_as_text())
+	_got_text(f.get_as_text(), "file")
 
 
-static func _got_text(text: String) -> void:
+static func _got_text(text: String, from := "") -> void:
 	if text.strip_edges() == "":
-		UI.app.toast(Lang.t("import_failed"), "error")
+		_fail("empty file" + (" from " + from if from != "" else ""))
 		return
 	var r := DB.parse_import(text)
 	if r.has("error"):

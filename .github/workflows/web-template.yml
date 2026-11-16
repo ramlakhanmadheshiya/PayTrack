@@ -1,0 +1,62 @@
+name: Slim web engine
+
+# Builds a smaller Godot engine for the website (no 3D, physics, audio, VR…),
+# so theramlakhan.com/paytrack loads faster. Takes a long time, so it runs only
+# when the engine version or tools/web_template_flags.txt changes (or by hand),
+# and the result is kept in the Actions cache for the main build to use.
+# If this fails, the main build simply uses Godot's normal web engine.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - tools/web_template_flags.txt
+      - .github/workflows/web-template.yml
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 1"   # weekly, so the cache never expires
+
+concurrency:
+  group: web-template
+  cancel-in-progress: false
+
+env:
+  GODOT_RELEASE: 4.7.2-stable
+
+jobs:
+  template:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Already built?
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: slim-web-template
+          key: slim-web-${{ env.GODOT_RELEASE }}-${{ hashFiles('tools/web_template_flags.txt') }}
+
+      - name: Godot source
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch "$GODOT_RELEASE" https://github.com/godotengine/godot.git godot-src
+          em=$(grep -oP 'EM_VERSION:\s*\K[0-9.]+' godot-src/.github/workflows/web_builds.yml || true)
+          echo "EM_VERSION=${em:-4.0.11}" >> "$GITHUB_ENV"
+          echo "Emscripten ${em:-4.0.11}"
+
+      - uses: mymindstorm/setup-emsdk@v14
+        if: steps.cache.outputs.cache-hit != 'true'
+        with:
+          version: ${{ env.EM_VERSION }}
+
+      - name: Build
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          pip install scons
+          cd godot-src
+          scons $(tr '\n' ' ' < ../tools/web_template_flags.txt) -j"$(nproc)"
+          mkdir -p ../slim-web-template
+          cp bin/godot.web.template_release.wasm32.nothreads.zip ../slim-web-template/web_nothreads_release.zip
+          ls -l ../slim-web-template
+          unzip -l ../slim-web-template/web_nothreads_release.zip

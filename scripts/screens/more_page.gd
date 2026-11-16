@@ -87,7 +87,7 @@ func _build_sharing(b: VBoxContainer) -> void:
 				st = Lang.t("sync_never") if Sync.last_ok == 0 else (Lang.t("synced_now") if ago < 60 else Lang.t("synced_ago", [Lang.ago(ago)]))
 		var who := Lang.t("connected_as", [Lang.name_of(Sync.my_name()), Sync.role_name(Sync.role())])
 		var icon := Icons.make("check_circle" if Sync.status == "ok" else ("warning" if Sync.status == "offline" else "history"), UI.GREEN if Sync.status == "ok" else UI.ORANGE, 22)
-		rows.append(UI.row(who, st, null, func(): Sync.sync_now(); refresh(), true, icon))
+		rows.append(UI.row(who, st, null, func(): Sync.sync_now(true), true, icon))
 		if Sync.role() == "admin":
 			rows.append(UI.row(Lang.t("users"), Lang.t("users_sub"), null, func(): UI.app.push(UsersPage.new()), true, Icons.make("people", UI.ACCENT, 22)))
 		rows.append(UI.row(Lang.t("stop_sharing"), "", null, _stop_sharing, false, Icons.make("close", UI.RED, 22)))
