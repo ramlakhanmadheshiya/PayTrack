@@ -1,0 +1,17 @@
+# PayTrack sync server. Deploy:  npx wrangler@4 deploy   (from this folder)
+name = "paytrack"
+main = "src/index.js"
+compatibility_date = "2026-11-01"
+workers_dev = false
+
+routes = [
+  { pattern = "paytrack.theramlakhan.com", custom_domain = true }
+]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "paytrack"
+database_id = "aa0dc95b-1137-405f-8657-06fddacf1d96"
+
+[observability]
+enabled = true
