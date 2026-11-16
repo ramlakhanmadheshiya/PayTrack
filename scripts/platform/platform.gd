@@ -190,23 +190,7 @@ static func import_backup() -> void:
 		return
 	var a := _android()
 	if a:
-		# The way that worked in 1.0.13: the system picker, result sent back by
-		# the plugin. A small window shows that something is happening.
-		if not _android_connected:
-			a.connect("file_picked", func(path: String):
-				_close_pick_window()
-				_got_file(path))
-			a.connect("pick_failed", func(msg: String):
-				_close_pick_window()
-				_fail(msg))
-			a.connect("pick_cancelled", func(): _close_pick_window())
-			_android_connected = true
-		_pick_window = Sheet.new(Lang.t("import_backup"))
-		UI.app.present(_pick_window)
-		_pick_window.body.add_child(UI.wrapped(UI.label(Lang.t("import_opening"), UI.S_SUB, UI.TEXT, 500)))
-		if not a.pickFile():
-			_close_pick_window()
-			_fail("picker did not open: " + String(a.lastError()))
+		_android_import(a)
 		return
 	if OS.has_feature("android"):
 		_fail("file picker missing in this build")
@@ -227,6 +211,53 @@ static func import_backup() -> void:
 	fd.file_selected.connect(func(p): _got_file(p); fd.queue_free())
 	UI.app.add_child(fd)
 	fd.popup_centered_ratio(0.8)
+
+
+static func _android_import(a: Object) -> void:
+	## Backups PayTrack saved on this phone (tap one), or choose another file.
+	if not _android_connected:
+		a.connect("file_picked", func(path: String):
+			_close_pick_window()
+			_got_file(path))
+		a.connect("pick_failed", func(msg: String):
+			_close_pick_window()
+			_fail(msg))
+		a.connect("pick_cancelled", func(): _close_pick_window())
+		_android_connected = true
+	var list = JSON.parse_string(String(a.listBackups()))
+	var sh := Sheet.new(Lang.t("import_backup"))
+	UI.app.present(sh)
+	sh.body.add_theme_constant_override("separation", 10)
+	if list is Array and not list.is_empty():
+		sh.body.add_child(UI.label(Lang.t("import_own_backups"), UI.S_CAP, UI.TEXT2, 600))
+		var c := UI.card()
+		var rows := []
+		for b in list.slice(0, 12):
+			var uri := String(b.get("uri", ""))
+			var t := Time.get_datetime_dict_from_unix_time(int(b.get("date", 0)) + 19800)
+			var day := "%04d-%02d-%02d" % [t.year, t.month, t.day]
+			var sub := "%s %02d:%02d · %d KB" % [Lang.date_full(day), t.hour, t.minute, maxi(1, int(b.get("size", 0)) / 1024)]
+			var row := UI.row(String(b.get("name", "")), sub, null, func():
+				sh.close()
+				var path := String(a.copyToCache(uri))
+				if path == "":
+					_fail(String(a.lastError()))
+				else:
+					_got_file(path), true, Icons.make("doc", UI.ACCENT, 22))
+			rows.append(row)
+		UI.add_rows(c, rows)
+		sh.body.add_child(c)
+	else:
+		sh.body.add_child(UI.wrapped(UI.label(Lang.t("import_no_own_backups"), UI.S_SUB, UI.TEXT2)))
+	sh.body.add_child(UI.button(Lang.t("import_choose_other"), "secondary", func():
+		sh.close()
+		_pick_window = Sheet.new(Lang.t("import_backup"))
+		UI.app.present(_pick_window)
+		_pick_window.body.add_child(UI.wrapped(UI.label(Lang.t("import_opening"), UI.S_SUB, UI.TEXT, 500)))
+		if not a.pickFile():
+			_close_pick_window()
+			_fail("picker did not open: " + String(a.lastError())), "import"))
+	sh.body.add_child(UI.wrapped(UI.label(Lang.t("import_other_help"), UI.S_CAP, UI.TEXT2)))
 
 
 static func _close_pick_window() -> void:
