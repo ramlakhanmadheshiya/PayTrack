@@ -6,7 +6,7 @@ CI runs this after every build (PORTFOLIO_DIR = a checkout made with the deploy 
 By hand:  python3 tools/prepare_web.py && python3 tools/deploy.py
 """
 from pathlib import Path
-import datetime, json, os, shutil, subprocess, sys
+import datetime, json, os, re, shutil, subprocess, sys
 
 ROOT = Path(__file__).resolve().parents[1]
 SITE = "ramlakhanmadheshiya/ramlakhanmadheshiya.github.io"
@@ -29,9 +29,20 @@ if run("git", "status", "--porcelain", cwd=WORK):
     sys.exit(f"{WORK} has local changes; review them first.")
 run("git", "pull", "--ff-only", cwd=WORK)
 target = WORK / DEST
+# Keep the engine files the previous page used (engine-<hash>.*): a browser that
+# still has the old page for a few minutes can then finish loading it.
+keep = {}
+old_html = target / "index.html"
+if old_html.exists():
+    m = re.search(r'"executable":"(engine-[0-9a-f]+)"', old_html.read_text())
+    if m:
+        for f in target.glob(m.group(1) + ".*"):
+            keep[f.name] = f.read_bytes()
 if target.exists():
     shutil.rmtree(target)
 target.mkdir(parents=True)
+for name, data in keep.items():
+    (target / name).write_bytes(data)
 for p in src.iterdir():
     if p.is_file() and not p.name.endswith(".import"):
         shutil.copy2(p, target / p.name)

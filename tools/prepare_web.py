@@ -1,7 +1,7 @@
 """After a Web export: set the page title, check the installable-app files
 (manifest + service worker) are present, and make repeat visits fast.
 
-The engine (index.wasm, ~10 MB to download) almost never changes between
+The engine (index.js + index.wasm, ~7 MB to download) almost never changes between
 PayTrack versions; only index.pck (the app, ~2 MB) does. Godot's service
 worker throws its whole cache away on every new version, so every update
 downloaded the engine again. Here:
@@ -32,13 +32,15 @@ html = re.sub(r"<title>.*?</title>", "<title>PayTrack</title>", html, flags=re.S
 
 # --- Engine files named by their content --------------------------------------
 h = hashlib.sha256()
-for name in ["index.wasm", "index.audio.worklet.js", "index.audio.position.worklet.js"]:
+for name in ["index.js", "index.wasm", "index.audio.worklet.js", "index.audio.position.worklet.js"]:
     if (folder / name).exists():
         h.update((folder / name).read_bytes())
 engine = "engine-" + h.hexdigest()[:10]
 renamed = {}
 for p in sorted(folder.iterdir()):
-    if p.name.startswith("index.") and (p.name == "index.wasm" or p.name.endswith(".worklet.js")):
+    # index.js must always match index.wasm exactly; browsers and Cloudflare
+    # keep .js for hours, so it is renamed by content too.
+    if p.name.startswith("index.") and (p.name in ("index.wasm", "index.js") or p.name.endswith(".worklet.js")):
         new = engine + p.name[len("index"):]
         p.rename(folder / new)
         renamed[p.name] = new
@@ -52,6 +54,9 @@ cfg["mainPack"] = "index.pck"         # …and would look for <executable>.pck w
 sizes = cfg.get("fileSizes", {})
 cfg["fileSizes"] = {renamed.get(k, k): v for k, v in sizes.items()}
 html = html[:m.start(1)] + json.dumps(cfg, separators=(",", ":")) + html[m.end(1):]
+if '<script src="index.js"></script>' not in html:
+    raise SystemExit("index.js script tag not found in index.html")
+html = html.replace('<script src="index.js"></script>', '<script src="' + renamed["index.js"] + '"></script>')
 html_file.write_text(html)
 
 # --- Service worker: new names, and keep the engine across versions ----------

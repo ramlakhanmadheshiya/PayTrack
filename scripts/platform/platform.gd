@@ -187,26 +187,26 @@ static func import_backup() -> void:
 		var win = JavaScriptBridge.get_interface("window")
 		win.ptPick(_web_cb)
 		return
-	# The system file picker built into Godot (Android, iPad, desktop). No type
-	# filter: phones grey out files whose type they do not know.
-	if DisplayServer.has_feature(DisplayServer.FEATURE_NATIVE_DIALOG_FILE):
-		var filters := PackedStringArray() if OS.has_feature("mobile") else PackedStringArray(["*.json, *.paytrack ; PayTrack"])
-		var err := DisplayServer.file_dialog_show(Lang.t("import_backup"), OS.get_system_dir(OS.SYSTEM_DIR_DOWNLOADS), "", false,
-			DisplayServer.FILE_DIALOG_MODE_OPEN_FILE, filters,
-			func(status: bool, paths: PackedStringArray, _idx: int):
-				if status and paths.size() > 0:
-					_got_file.call_deferred(paths[0]))
-		if err == OK:
-			return
 	var a := _android()
 	if a:
-		if not _android_connected:
-			a.connect("file_picked", func(path: String): _got_file.call_deferred(path))
-			a.connect("pick_failed", func(msg: String): _fail.call_deferred("picker: " + msg))
-			_android_connected = true
+		# PayTrack's own picker screen; the result is read back by asking.
 		if not a.pickFile():
-			_fail("picker did not open")
+			_fail("picker did not open: " + String(a.lastError()))
+			return
+		_wait_for_pick(a)
 		return
+	if OS.has_feature("android"):
+		_fail("file picker missing in this build")
+		return
+	# Desktop: the system's open dialog.
+	if DisplayServer.has_feature(DisplayServer.FEATURE_NATIVE_DIALOG_FILE):
+		var err := DisplayServer.file_dialog_show(Lang.t("import_backup"), OS.get_system_dir(OS.SYSTEM_DIR_DOWNLOADS), "", false,
+			DisplayServer.FILE_DIALOG_MODE_OPEN_FILE, PackedStringArray(["*.json, *.paytrack ; PayTrack"]),
+			func(status: bool, paths: PackedStringArray, _idx: int):
+				if status and paths.size() > 0:
+					_got_file(paths[0]))
+		if err == OK:
+			return
 	var fd := FileDialog.new()
 	fd.file_mode = FileDialog.FILE_MODE_OPEN_FILE
 	fd.access = FileDialog.ACCESS_FILESYSTEM
@@ -214,6 +214,23 @@ static func import_backup() -> void:
 	fd.file_selected.connect(func(p): _got_file(p); fd.queue_free())
 	UI.app.add_child(fd)
 	fd.popup_centered_ratio(0.8)
+
+
+static func _wait_for_pick(a: Object) -> void:
+	## Asks the picker every 0.4 s until the user has chosen a file (or not).
+	var tree := UI.app.get_tree()
+	var waited := 0.0
+	while waited < 1800.0:
+		await tree.create_timer(0.4, true).timeout
+		waited += 0.4
+		var st := String(a.pickStatus())
+		if st == "waiting":
+			continue
+		if st.begins_with("done:"):
+			_got_file(st.substr(5))
+		elif st.begins_with("error:"):
+			_fail(st.substr(6))
+		return   # "cancelled" or "idle": nothing to do
 
 
 static func _fail(reason: String) -> void:

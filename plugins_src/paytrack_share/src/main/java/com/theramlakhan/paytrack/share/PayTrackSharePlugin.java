@@ -129,6 +129,11 @@ public class PayTrackSharePlugin extends GodotPlugin {
 		}
 	}
 
+	/**
+	 * Opens the system file picker in PickActivity (a small invisible screen
+	 * that receives the chosen file itself, then closes). Godot asks
+	 * pickStatus() until it is no longer "waiting".
+	 */
 	@UsedByGodot
 	public boolean pickFile() {
 		final Activity activity = getActivity();
@@ -137,10 +142,14 @@ public class PayTrackSharePlugin extends GodotPlugin {
 			return false;
 		}
 		try {
-			final Intent pick = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-			pick.addCategory(Intent.CATEGORY_OPENABLE);
-			pick.setType("*/*");
-			activity.runOnUiThread(() -> activity.startActivityForResult(pick, PICK_REQUEST));
+			PickActivity.status = "waiting";
+			activity.runOnUiThread(() -> {
+				try {
+					activity.startActivity(new Intent(activity, PickActivity.class));
+				} catch (Exception e) {
+					PickActivity.status = "error:open " + e;
+				}
+			});
 			return true;
 		} catch (Exception e) {
 			error = "pick: " + e;
@@ -148,46 +157,13 @@ public class PayTrackSharePlugin extends GodotPlugin {
 		}
 	}
 
-	@Override
-	public void onMainActivityResult(int requestCode, int resultCode, Intent data) {
-		super.onMainActivityResult(requestCode, resultCode, data);
-		if (requestCode != PICK_REQUEST) {
-			return;
+	/** "idle", "waiting", "done:<path>", "cancelled" or "error:<why>". */
+	@UsedByGodot
+	public String pickStatus() {
+		String s = PickActivity.status;
+		if (!s.equals("waiting") && !s.equals("idle")) {
+			PickActivity.status = "idle";
 		}
-		if (resultCode != Activity.RESULT_OK || data == null || data.getData() == null) {
-			return; // cancelled
-		}
-		Activity activity = getActivity();
-		if (activity == null) {
-			runOnRenderThread(() -> emitSignal("pick_failed", "no activity"));
-			return;
-		}
-		Uri uri = data.getData();
-		try {
-			String name = "import.paytrack";
-			try (Cursor c = activity.getContentResolver().query(uri, null, null, null, null)) {
-				if (c != null && c.moveToFirst()) {
-					int idx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME);
-					if (idx >= 0 && c.getString(idx) != null) {
-						name = c.getString(idx).replaceAll("[^A-Za-z0-9._-]", "_");
-					}
-				}
-			}
-			File out = new File(activity.getCacheDir(), name);
-			try (InputStream in = activity.getContentResolver().openInputStream(uri);
-				 OutputStream os = new FileOutputStream(out)) {
-				byte[] buf = new byte[64 * 1024];
-				int n;
-				while ((n = in.read(buf)) > 0) {
-					os.write(buf, 0, n);
-				}
-			}
-			final String picked = out.getAbsolutePath();
-			// Signals go to the game thread, not Android's UI thread.
-			runOnRenderThread(() -> emitSignal("file_picked", picked));
-		} catch (Exception e) {
-			final String msg = e.toString();
-			runOnRenderThread(() -> emitSignal("pick_failed", msg));
-		}
+		return s;
 	}
 }
