@@ -8,6 +8,7 @@ extends RefCounted
 
 static var _web_cb  # keeps the JS callback alive
 static var _android_connected := false
+static var _pick_window: Sheet
 
 
 static func setup() -> void:
@@ -189,11 +190,23 @@ static func import_backup() -> void:
 		return
 	var a := _android()
 	if a:
-		# PayTrack's own picker screen; the result is read back by asking.
+		# The way that worked in 1.0.13: the system picker, result sent back by
+		# the plugin. A small window shows that something is happening.
+		if not _android_connected:
+			a.connect("file_picked", func(path: String):
+				_close_pick_window()
+				_got_file(path))
+			a.connect("pick_failed", func(msg: String):
+				_close_pick_window()
+				_fail(msg))
+			a.connect("pick_cancelled", func(): _close_pick_window())
+			_android_connected = true
+		_pick_window = Sheet.new(Lang.t("import_backup"))
+		UI.app.present(_pick_window)
+		_pick_window.body.add_child(UI.wrapped(UI.label(Lang.t("import_opening"), UI.S_SUB, UI.TEXT, 500)))
 		if not a.pickFile():
+			_close_pick_window()
 			_fail("picker did not open: " + String(a.lastError()))
-			return
-		_wait_for_pick(a)
 		return
 	if OS.has_feature("android"):
 		_fail("file picker missing in this build")
@@ -216,49 +229,10 @@ static func import_backup() -> void:
 	fd.popup_centered_ratio(0.8)
 
 
-static func _wait_for_pick(a: Object) -> void:
-	## Asks the picker every 0.4 s until a file was chosen (or not), and shows
-	## each step in a small window, so a problem can be seen and reported.
-	var sh := Sheet.new(Lang.t("import_backup"))
-	UI.app.present(sh)
-	var msg := UI.wrapped(UI.label(Lang.t("import_opening"), UI.S_SUB, UI.TEXT, 500))
-	sh.body.add_child(msg)
-	var detail := UI.wrapped(UI.label("", UI.S_CAP, UI.TEXT3))
-	detail.set_meta("raw", true)
-	sh.body.add_child(detail)
-	var tree := UI.app.get_tree()
-	var waited := 0.0
-	var opened := false
-	var last := Time.get_ticks_msec()
-	while waited < 1800.0:
-		await tree.create_timer(0.4, true).timeout
-		if not is_instance_valid(sh) or sh._closing:
-			return   # closed by the user
-		var now := Time.get_ticks_msec()
-		if now - last > 1500:
-			opened = true   # the app was in the background: the picker was shown
-			msg.text = Lang.t("import_reading")
-		last = now
-		waited += 0.4
-		var st := String(a.pickStatus())
-		detail.text = st.substr(0, 160)
-		if st == "waiting":
-			if not opened and waited > 6.0:
-				msg.text = Lang.t("import_no_picker")
-				msg.add_theme_color_override("font_color", UI.RED)
-			continue
-		if st.begins_with("done:"):
-			sh.close()
-			_got_file(st.substr(5))
-		elif st.begins_with("error:"):
-			msg.text = Lang.t("import_failed") + ": " + st.substr(6)
-			msg.add_theme_color_override("font_color", UI.RED)
-		elif st == "cancelled":
-			sh.close()
-		else:
-			msg.text = Lang.t("import_no_result")
-			msg.add_theme_color_override("font_color", UI.RED)
-		return
+static func _close_pick_window() -> void:
+	if _pick_window != null and is_instance_valid(_pick_window) and not _pick_window._closing:
+		_pick_window.close()
+	_pick_window = null
 
 
 static func _fail(reason: String) -> void:
