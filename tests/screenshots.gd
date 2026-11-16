@@ -23,6 +23,9 @@ func _ready() -> void:
 	OS.low_processor_usage_mode = false  # keep drawing so screenshots never wait
 	db = DB
 	db.save_enabled = false
+	Sync.save_state_enabled = false
+	Sync.url = "http://127.0.0.1:9"   # never the real server
+	Sync.leave()
 	db.data = db.empty_data()
 	Dates.fake_today = "2026-11-15"
 	var size := Vector2i(390, 844) if mode == "phone" else Vector2i(1180, 820)
@@ -207,6 +210,46 @@ func _run() -> void:
 	await shot("balances")
 	app.switch_tab("more")
 	await shot("more")
+	JoinSheet.open()
+	await shot("join")
+	app.top_sheet().close()
+	await wait(20)
+	# Pretend this phone is the admin of a shared PayTrack (no network used).
+	Sync.token = "screenshot"
+	Sync.me = {"id": "u1", "name": "Ramesh", "role": "admin"}
+	Sync._poll.stop()
+	Sync.status = "ok"
+	Sync.last_ok = int(Time.get_unix_time_from_system()) - 120
+	app.top_page().refresh()
+	await shot("more-sharing")
+	var up := UsersPage.new()
+	app.push(up)
+	up._loaded = true
+	var now_ms := int(Time.get_unix_time_from_system() * 1000)
+	up.users = [
+		{"id": "u1", "name": "Ramesh", "role": "admin", "joined": true, "removed": false, "last_seen": now_ms},
+		{"id": "u2", "name": "Bhai", "role": "editor", "joined": true, "removed": false, "last_seen": now_ms - 600000},
+		{"id": "u3", "name": "Papa", "role": "viewer", "joined": false, "removed": false},
+	]
+	up.refresh()
+	await shot("users")
+	AddUserSheet.open()
+	await shot("add-user")
+	app.top_sheet().close()
+	await wait(20)
+	AddUserSheet.show_code("Bhai", "K7P4-2XQM")
+	await shot("user-code")
+	app.top_sheet().close()
+	await wait(20)
+	app.pop_to_root()
+	var lock := PinLock.show_lock("set")
+	lock.press("1")
+	lock.press("2")
+	await shot("pin")
+	lock.queue_free()
+	Sync.token = ""
+	Sync.me = {}
+	Sync.status = "off"
 	app.switch_tab("home")
 	await shot("home-after")
 	get_tree().quit()

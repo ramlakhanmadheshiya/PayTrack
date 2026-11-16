@@ -89,9 +89,10 @@ func _menu() -> void:
 	if not prev.is_empty():
 		var pid: String = prev.id
 		items.append([Lang.t("repeat_month", [Lang.month_ym(prev.ym)]), "undo", func(): repeat(sheet_id, pid)])
-	items.append(
-		[Lang.t("delete_sheet"), "trash", func():
-			UI.app.confirm(Lang.t("delete_sheet"), Lang.t("delete_sheet_q", [Lang.month_ym(sh.ym)]), Lang.t("delete_sheet"), func():
-				DB.delete_sheet(sheet_id)
-				UI.app.pop(), true), true])
+	if Sync.is_admin():
+		items.append(
+			[Lang.t("delete_sheet"), "trash", func():
+				UI.app.confirm(Lang.t("delete_sheet"), Lang.t("delete_sheet_q", [Lang.month_ym(sh.ym)]), Lang.t("delete_sheet"), func():
+					DB.delete_sheet(sheet_id)
+					UI.app.pop(), true), true])
 	UI.app.menu(Lang.month_ym(sh.ym), items)

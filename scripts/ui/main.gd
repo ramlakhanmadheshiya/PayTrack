@@ -37,12 +37,16 @@ func _ready() -> void:
 	DB.changed.connect(_queue_refresh)
 	Lang.changed.connect(_on_lang)
 	get_tree().node_added.connect(_on_node_added)
+	Sync.notice.connect(func(t, m): confirm(t, m, Lang.t("ok"), func(): pass))
+	Sync.status_changed.connect(_on_sync_status)
 	for t in TABS:
 		stacks[t] = []
 	for t in TABS:
 		_push_root(t)
 	switch_tab("home")
 	Platform.setup()
+	if PinLock.is_on():
+		_lock.call_deferred()
 
 
 # ---------------------------------------------------------------------------
@@ -580,8 +584,36 @@ func _unhandled_input(ev: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 
+var _away_since := 0
+var _lock_screen: PinLock
+
+
+func _lock() -> void:
+	if PinLock.is_on() and not is_instance_valid(_lock_screen):
+		numpad_close()
+		_lock_screen = PinLock.show_lock()
+
+
+func _on_sync_status() -> void:
+	var p := top_page()
+	if p is MorePage or p is UsersPage:
+		p.refresh()
+
+
 func _notification(what: int) -> void:
+	if what == NOTIFICATION_APPLICATION_PAUSED or what == NOTIFICATION_APPLICATION_FOCUS_OUT:
+		if _away_since == 0:
+			_away_since = int(Time.get_unix_time_from_system())
+	elif what == NOTIFICATION_APPLICATION_RESUMED or what == NOTIFICATION_APPLICATION_FOCUS_IN:
+		var away := int(Time.get_unix_time_from_system()) - _away_since if _away_since > 0 else 0
+		_away_since = 0
+		if away >= PinLock.AWAY_SECONDS:
+			_lock()
+		if away > 2 and Sync.enabled():
+			Sync.sync_now()
 	if what == NOTIFICATION_WM_GO_BACK_REQUEST:
+		if is_instance_valid(_lock_screen):
+			return
 		var s := top_sheet()
 		if s:
 			s.close()

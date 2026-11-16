@@ -67,6 +67,8 @@ static func text_of(l: Dictionary) -> String:
 func _row(l: Dictionary) -> Control:
 	var t := Time.get_datetime_dict_from_unix_time(int(l.get("t", 0)) + _tz_offset())
 	var time := "%02d:%02d" % [t.hour, t.minute]
+	if String(l.get("by", "")) != "":
+		time += " · " + Lang.name_of(String(l.by))
 	var k: String = l.get("k", "")
 	var icon := "history"
 	if k.begins_with("entry"):

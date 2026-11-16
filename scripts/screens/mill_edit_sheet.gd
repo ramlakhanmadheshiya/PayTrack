@@ -51,8 +51,9 @@ func build() -> void:
 			close()
 			UI.app.toast(Lang.t("saved"))), Callable(), false)])
 		body.add_child(hc)
-		body.add_child(UI.spacer(6))
-		body.add_child(UI.button(Lang.t("delete_mill"), "danger", _delete, "trash"))
+		if Sync.is_admin():
+			body.add_child(UI.spacer(6))
+			body.add_child(UI.button(Lang.t("delete_mill"), "danger", _delete, "trash"))
 	else:
 		_open_keyboard.call_deferred()
 

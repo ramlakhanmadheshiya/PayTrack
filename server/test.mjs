@@ -43,6 +43,7 @@ const up = await call("/sync", { method: "POST", token: admin, body: { changes: 
 check(up.status === 200 && up.j.accepted === 4 && up.j.rev === 4, "admin uploads 4 records");
 const pl = await call("/sync?since=0", { token: ed });
 check(pl.j.records.length === 4 && pl.j.records[0].by === "Owner", "editor gets them with who made them");
+check(pl.j.me.role === "editor" && pl.j.users.length === 3, "pull says who I am and lists users");
 check((await call("/sync?since=4", { token: ed })).j.records.length === 0, "nothing new since rev 4");
 
 // Roles.

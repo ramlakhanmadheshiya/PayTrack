@@ -58,8 +58,25 @@ python3 tools/deploy.py                                                  # publi
 ## Data and privacy
 
 Data lives only on the device (`user://paytrack.json`, IndexedDB on the web), with an automatic
-previous copy. More → Export makes one `.paytrack` file; Import on another device replaces its data
+previous copy. More → Export makes one `.json` backup file; Import on another device replaces its data
 (the old data is kept for Undo import). No real names or amounts go into this repo or the public site.
+
+## Sharing between phones
+
+Optional (More › Share with family). Every phone keeps its full copy and works offline;
+`scripts/core/sync.gd` sends changed records to the server and fetches the others' changes.
+
+- Server: `server/` — Cloudflare Worker + D1 at `paytrack.theramlakhan.com` (free plan).
+  Deploy: `cd server && npx wrangler@4 deploy`. Schema: `server/schema.sql`.
+- Users join with a one-time code made by the admin (More › Users). Roles: admin, editor
+  (cannot delete mills, people or salary sheets), view only. A recovery code makes a new admin phone.
+- Two phones paying the same person for the same days: the first payment the server gets wins;
+  the other phone is told and its payment is undone.
+- Backups: the private repo `paytrack-backups` saves the full data every evening at 7 p.m. IST
+  (GitHub Actions); the newest 7 files are kept, older ones stay in history.
+  **That repository must never be deleted or made public.**
+- Tests: `node server/test.mjs` and `godot --headless --path . tests/sync_flow.tscn`, both against
+  `npx wrangler@4 dev --local` with a fresh local database (see the top of `tests/sync_flow.gd`).
 
 ## Signing
 

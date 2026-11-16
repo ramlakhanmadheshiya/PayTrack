@@ -76,7 +76,7 @@ func _menu() -> void:
 		items.append([Lang.t("join_family"), "family", _join])
 	var archived: bool = p.get("archived", false)
 	items.append([Lang.t("show_person") if archived else Lang.t("hide_person"), "history", func(): _toggle_archive(archived)])
-	if DB.can_delete_person(person_id):
+	if DB.can_delete_person(person_id) and Sync.is_admin():
 		items.append([Lang.t("delete_person"), "trash", _delete, true])
 	UI.app.menu(p.name, items)
 

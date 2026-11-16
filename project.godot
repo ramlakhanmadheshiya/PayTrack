@@ -18,6 +18,7 @@ config/quit_on_go_back=false
 
 Lang="*res://scripts/core/lang.gd"
 DB="*res://scripts/core/store.gd"
+Sync="*res://scripts/core/sync.gd"
 
 [display]
 

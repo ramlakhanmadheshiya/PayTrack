@@ -10,10 +10,10 @@
 // secret key. Removing the user stops that key at once.
 //
 // Roles: admin (everything + users), editor (daily work; cannot delete mills,
-// people, groups or salary sheets), viewer (read only).
+// people or salary sheets), viewer (read only).
 
 const COLLECTIONS = ["mills", "people", "khatas", "entries", "payments", "sheets", "log"];
-const EDITOR_NO_DELETE = new Set(["mills", "people", "khatas", "sheets"]);
+const EDITOR_NO_DELETE = new Set(["mills", "people", "sheets"]);
 const ROLES = new Set(["admin", "editor", "viewer"]);
 const CODE_DAYS = 7;
 const PAGE = 2000;
@@ -53,7 +53,7 @@ async function route(req, env) {
 
   const user = await auth(req, db);
   if (p === "/me" && req.method === "GET") return json({ user: publicUser(user), users: await userNames(db), rev: await currentRev(db) });
-  if (p === "/sync" && req.method === "GET") return pull(db, Number(url.searchParams.get("since") || 0));
+  if (p === "/sync" && req.method === "GET") return pull(db, Number(url.searchParams.get("since") || 0), user);
   if (p === "/sync" && req.method === "POST") return push(req, db, user);
   if (p === "/users" && req.method === "GET") return listUsers(db, user);
   if (p === "/users" && req.method === "POST") return addUser(req, db, user);
@@ -256,7 +256,7 @@ async function changeUser(req, db, me, id) {
 // Sync
 // ---------------------------------------------------------------------------
 
-async function pull(db, since) {
+async function pull(db, since, me) {
   const r = await db.prepare("SELECT col, id, data, deleted, rev, by_user FROM records WHERE rev > ? ORDER BY rev LIMIT ?")
     .bind(since || 0, PAGE + 1).all();
   const rows = r.results;
@@ -266,6 +266,8 @@ async function pull(db, since) {
   return json({
     rev,
     more,
+    me: publicUser(me),
+    users: await userNames(db),
     records: rows.map((x) => ({ c: x.col, id: x.id, d: x.deleted ? null : JSON.parse(x.data), del: !!x.deleted, by: x.by_user })),
   });
 }

@@ -124,12 +124,20 @@ static func normalize(d: Dictionary) -> Dictionary:
 	return out
 
 
+static func normalize_record(col: String, rec: Dictionary) -> Dictionary:
+	## One record from another phone, with numbers as the app keeps them.
+	var d := {"mills": [], "people": [], "khatas": [], "entries": [], "payments": []}
+	d[col] = [rec.duplicate(true)]
+	return normalize(d)[col][0]
+
+
 # --------------------------------------------------------------------------
 # Ids and lookups
 # --------------------------------------------------------------------------
 
 func new_id(prefix: String) -> String:
-	return "%s%d%04x" % [prefix, Time.get_unix_time_from_system(), randi() % 65536]
+	# Random enough that two phones never make the same id.
+	return "%s%d%08x" % [prefix, Time.get_unix_time_from_system(), randi()]
 
 
 func _find(list: Array, id: String) -> Dictionary:
@@ -1081,9 +1089,13 @@ const LOG_MAX := 5000
 
 
 func log_event(kind: String, args: Array = [], type := "") -> void:
-	var l := {"t": int(Time.get_unix_time_from_system()), "d": Dates.today(), "k": kind, "a": args}
+	var l := {"id": new_id("l"), "t": int(Time.get_unix_time_from_system()), "d": Dates.today(), "k": kind, "a": args}
 	if type != "":
 		l.ty = type
+	# Who did it, when phones are shared.
+	var sync := get_node_or_null("/root/Sync")
+	if sync and sync.enabled():
+		l.by = sync.my_name()
 	data.log.append(l)
 	if data.log.size() > LOG_MAX:
 		data.log = data.log.slice(data.log.size() - LOG_MAX)

@@ -182,6 +182,17 @@ func day_label(s: String) -> String:
 	return date_smart(s)
 
 
+func ago(seconds: int) -> String:
+	## "5 min", "3 hr", "2 days"
+	if seconds < 60:
+		return t("ago_moment")
+	if seconds < 3600:
+		return t("ago_min", [seconds / 60])
+	if seconds < 86400:
+		return t("ago_hr", [seconds / 3600])
+	return t("ago_days", [seconds / 86400])
+
+
 func month_ym(ym: String) -> String:
 	## "2026-10" → "Oct 2026"
 	if ym.length() < 7:
