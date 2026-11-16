@@ -213,8 +213,9 @@ func join(code: String, recovery := false) -> String:
 	return ""
 
 
-func leave() -> void:
-	## Stop sharing on this phone. The data stays on the phone as it is.
+func leave(erase := true) -> void:
+	## Stop sharing on this phone. The shared data is erased from the phone at
+	## once (it belongs to the admin, not to this phone).
 	token = ""
 	me = {}
 	users = []
@@ -223,7 +224,31 @@ func leave() -> void:
 	last_ok = 0
 	_poll.stop()
 	save_state()
+	if erase:
+		erase_device()
 	_set_status("off")
+
+
+func erase_device() -> void:
+	## Every trace of PayTrack data on this phone: the data, its safety
+	## copies, the import-undo copy, the copy kept when joining, shared files.
+	_applying = true
+	var lang := Lang.lang
+	DB.data = DB.empty_data()
+	DB.data.settings.lang = lang
+	if DB.save_enabled:
+		for path in [DB.PREV_PATH, DB.IMPORT_UNDO_PATH, BEFORE_JOIN_PATH]:
+			if FileAccess.file_exists(path):
+				DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+		var share := DirAccess.open("user://share")
+		if share:
+			for f in share.get_files():
+				share.remove(f)
+	DB.save()
+	if FileAccess.file_exists(DB.PREV_PATH) and DB.save_enabled:
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(DB.PREV_PATH))
+	_snapshot = {}
+	_applying = false
 
 
 # ---------------------------------------------------------------------------

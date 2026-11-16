@@ -57,20 +57,38 @@ func _save() -> void:
 		on_done.call()
 
 
+static func join_link(code: String) -> String:
+	return "https://theramlakhan.com/paytrack/?join=" + code
+
+
 static func show_code(name: String, code: String) -> void:
-	## The one-time code, big, with a Copy button (to send on WhatsApp).
+	## The one-time code, big, with its QR code (scan with the iPad/phone
+	## camera: PayTrack opens with the code filled in). Share or copy it.
 	var s := Sheet.new(Lang.t("code_for", [name]))
 	s.cancel_text = Lang.t("done")
 	UI.app.present(s)
 	s.body.add_theme_constant_override("separation", 14)
+	var img := QR.image(QR.encode(join_link(code)), 8)
+	var tr := TextureRect.new()
+	tr.texture = ImageTexture.create_from_image(img)
+	tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	tr.custom_minimum_size = Vector2(220, 220)
+	tr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	var qc := CenterContainer.new()
+	qc.add_child(tr)
+	s.body.add_child(qc)
 	var box := PanelContainer.new()
-	box.add_theme_stylebox_override("panel", UI.pad(UI.box(UI.ACCENT_SOFT, 14), 16, 18))
-	var l := UI.label(code, 34, UI.ACCENT, 700, true)
+	box.add_theme_stylebox_override("panel", UI.pad(UI.box(UI.ACCENT_SOFT, 14), 16, 14))
+	var l := UI.label(code, 30, UI.ACCENT, 700, true)
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	l.set_meta("raw", true)
 	box.add_child(l)
 	s.body.add_child(box)
-	s.body.add_child(UI.wrapped(UI.label(Lang.t("code_help", [name]), UI.S_SUB, UI.TEXT2)))
-	s.body.add_child(UI.button(Lang.t("copy_code"), "primary", func():
+	s.body.add_child(UI.wrapped(UI.label(Lang.t("code_help_qr", [name]), UI.S_SUB, UI.TEXT2)))
+	var big := QR.image(QR.encode(join_link(code)), 16)
+	s.body.add_child(UI.button(Lang.t("share_qr"), "primary", func():
+		Platform.share_bytes(big.save_png_to_buffer(), "PayTrack-code-%s.png" % code, "image/png", Lang.t("share_qr_text", [code, join_link(code)])), "share"))
+	s.body.add_child(UI.button(Lang.t("copy_code"), "secondary", func():
 		DisplayServer.clipboard_set(code)
 		UI.app.toast(Lang.t("code_copied")), "doc"))

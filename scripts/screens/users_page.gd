@@ -41,26 +41,43 @@ func build(b: VBoxContainer) -> void:
 	elif _error != "" and users.is_empty():
 		UI.card_body(c).add_child(UI.margin(UI.wrapped(UI.label(Lang.t(_error), UI.S_SUB, UI.RED, 500)), 16, 14, 16, 14))
 	else:
-		var rows := []
-		var now := int(Time.get_unix_time_from_system())
+		var active := []
+		var removed := []
 		for u in users:
-			var id: String = u.id
-			var name: String = u.name
-			var me: bool = id == String(Sync.me.get("id", ""))
-			var sub := Sync.role_name(String(u.role))
-			if u.get("removed", false):
-				sub = Lang.t("user_removed")
-			elif not u.get("joined", false):
-				sub += " · " + Lang.t("user_waiting")
-			elif u.get("last_seen") != null and float(u.last_seen) > 0:
-				sub += " · " + Lang.t("last_seen", [Lang.ago(now - int(float(u.last_seen) / 1000.0))])
-			var shown := Lang.name_of(name) + (" (" + Lang.t("you") + ")" if me else "")
-			var col := UI.TEXT3 if u.get("removed", false) else UI.ACCENT
-			rows.append(UI.row(shown, sub, null, func(): _menu(u), true, UI.avatar(name, 38, UI.ACCENT_SOFT, col)))
-		UI.add_rows(c, rows)
+			(removed if u.get("removed", false) else active).append(_user_row(u))
+		UI.add_rows(c, active)
+		b.add_child(UI.margin(c, 16, 0, 16, 0))
+		_role_notes(b)
+		if not removed.is_empty():
+			b.add_child(UI.section_title(Lang.t("removed_users", [removed.size()])))
+			var rc := UI.card()
+			UI.add_rows(rc, removed)
+			b.add_child(UI.margin(rc, 16, 0, 16, 0))
+		return
 	b.add_child(UI.margin(c, 16, 0, 16, 0))
+	_role_notes(b)
+
+
+func _role_notes(b: VBoxContainer) -> void:
 	b.add_child(UI.footnote(Lang.t("role_editor") + ": " + Lang.t("role_editor_help")))
 	b.add_child(UI.footnote(Lang.t("role_viewer") + ": " + Lang.t("role_viewer_help")))
+
+
+func _user_row(u: Dictionary) -> Control:
+	var now := int(Time.get_unix_time_from_system())
+	var id: String = u.id
+	var name: String = u.name
+	var me: bool = id == String(Sync.me.get("id", ""))
+	var sub := Sync.role_name(String(u.role))
+	if u.get("removed", false):
+		sub = Lang.t("user_removed")
+	elif not u.get("joined", false):
+		sub += " · " + Lang.t("user_waiting")
+	elif u.get("last_seen") != null and float(u.last_seen) > 0:
+		sub += " · " + Lang.t("last_seen", [Lang.ago(now - int(float(u.last_seen) / 1000.0))])
+	var shown := Lang.name_of(name) + (" (" + Lang.t("you") + ")" if me else "")
+	var col := UI.TEXT3 if u.get("removed", false) else UI.ACCENT
+	return UI.row(shown, sub, null, func(): _menu(u), true, UI.avatar(name, 38, UI.ACCENT_SOFT, col))
 
 
 func _menu(u: Dictionary) -> void:
@@ -71,7 +88,7 @@ func _menu(u: Dictionary) -> void:
 	if not me:
 		if not u.get("removed", false):
 			items.append([Lang.t("change_role"), "people", func(): _role(u)])
-		items.append([Lang.t("new_phone"), "undo", func():
+		items.append([Lang.t("rejoin_code") if u.get("removed", false) else Lang.t("new_phone"), "undo", func():
 			UI.app.confirm(Lang.t("new_phone"), Lang.t("new_phone_q", [name]), Lang.t("new_phone"), func(): _new_code(u))])
 		if not u.get("removed", false):
 			items.append([Lang.t("remove_user"), "trash", func():

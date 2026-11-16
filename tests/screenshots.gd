@@ -230,6 +230,7 @@ func _run() -> void:
 		{"id": "u1", "name": "Ramesh", "role": "admin", "joined": true, "removed": false, "last_seen": now_ms},
 		{"id": "u2", "name": "Bhai", "role": "editor", "joined": true, "removed": false, "last_seen": now_ms - 600000},
 		{"id": "u3", "name": "Papa", "role": "viewer", "joined": false, "removed": false},
+		{"id": "u4", "name": "Test", "role": "editor", "joined": true, "removed": true},
 	]
 	up.refresh()
 	await shot("users")

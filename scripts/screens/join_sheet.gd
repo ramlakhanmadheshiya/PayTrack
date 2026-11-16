@@ -4,14 +4,16 @@ extends Sheet
 ## (or the admin's own code the first time, or the recovery code).
 
 var recovery := false
+var prefill := ""
 var field: TextField
 var _err: Label
 var _busy := false
 
 
-static func open(use_recovery := false) -> void:
+static func open(use_recovery := false, code := "") -> void:
 	var s := JoinSheet.new(Lang.t("sharing"), Lang.t("recover") if use_recovery else Lang.t("join"))
 	s.recovery = use_recovery
+	s.prefill = code
 	s.action_cb = s._join
 	UI.app.present(s)
 
@@ -22,7 +24,7 @@ func build() -> void:
 	body.add_child(UI.wrapped(UI.label(Lang.t("sharing_help"), UI.S_SUB, UI.TEXT2)))
 	body.add_child(UI.wrapped(UI.label(Lang.t("recovery_help") if recovery else Lang.t("sharing_intro"), UI.S_SUB, UI.TEXT, 500)))
 	body.add_child(UI.label(Lang.t("recovery_code") if recovery else Lang.t("join_code"), UI.S_CAP, UI.TEXT2, 600))
-	field = UI.text_field(Lang.t("join_code_ph"), "", Lang.t("join_code"))
+	field = UI.text_field(Lang.t("join_code_ph"), prefill, Lang.t("join_code"))
 	field.capitalize_words = false
 	field.max_length = 24
 	body.add_child(field)
@@ -34,7 +36,8 @@ func build() -> void:
 		var l := UI.link(Lang.t("use_recovery"), func(): close(); JoinSheet.open(true), UI.ACCENT, UI.S_SUB)
 		l.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 		body.add_child(l)
-	(func(): if is_instance_valid(field): UI.app.numpad_open(field)).call_deferred()
+	if prefill == "":
+		(func(): if is_instance_valid(field): UI.app.numpad_open(field)).call_deferred()
 
 
 func _join() -> void:

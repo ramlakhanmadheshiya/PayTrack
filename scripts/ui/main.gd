@@ -48,6 +48,10 @@ func _ready() -> void:
 	if PinLock.is_on():
 		_lock.call_deferred()
 	if OS.has_feature("web"):
+		# Opened from a QR code (…/paytrack/?join=CODE): fill in the code.
+		var join_code = JavaScriptBridge.eval("(function(){var c=new URLSearchParams(location.search).get('join')||''; if(c){history.replaceState(null,'',location.pathname);} return c;})()", true)
+		if join_code is String and join_code != "" and not Sync.enabled():
+			(func(): JoinSheet.open(false, join_code)).call_deferred()
 		# For the automatic check before publishing: the first screen is up.
 		(func(): JavaScriptBridge.eval("window.ptReady = true;")).call_deferred()
 
@@ -598,6 +602,12 @@ func _lock() -> void:
 
 
 func _on_sync_status() -> void:
+	if Sync.status == "removed" or (not Sync.enabled() and Sync.status == "off"):
+		# The data was erased: no page may keep showing it.
+		for t in TABS:
+			go_tab_root(t)
+		switch_tab("home")
+		return
 	var p := top_page()
 	if p is MorePage or p is UsersPage:
 		p.refresh()

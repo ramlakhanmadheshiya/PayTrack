@@ -1400,7 +1400,7 @@ func export_text() -> String:
 
 
 func export_file_name() -> String:
-	return "PayTrack-backup-%s.json" % Dates.today()
+	return "PayTrack-%s.paytrack" % Dates.today()
 
 
 func mark_exported() -> void:

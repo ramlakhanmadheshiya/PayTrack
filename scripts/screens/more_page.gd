@@ -20,12 +20,14 @@ func build(b: VBoxContainer) -> void:
 	var cur := sizes.find(float(DB.setting("text_size", 1.0)))
 	b.add_child(UI.margin(UI.segmented([Lang.t("size_normal"), Lang.t("size_large"), Lang.t("size_larger")], maxi(cur, 0), func(i): UI.app.set_text_size(sizes[i])), 16, 0, 16, 0))
 	# Backup.
-	b.add_child(UI.section_title(Lang.t("backup")))
+	var backup_title := UI.section_title(Lang.t("backup"))
+	b.add_child(backup_title)
 	var c := UI.card()
 	var last: String = DB.setting("last_export", "")
-	var rows := [
-		UI.row(Lang.t("export_backup"), Lang.t("last_backup", [Lang.date_full(last)]) if last != "" else Lang.t("never_backed_up"), null, func(): Platform.export_backup(), true, Icons.make("export", UI.ACCENT, 22)),
-	]
+	var rows := []
+	# View-only users may not take the data away.
+	if not Sync.read_only():
+		rows.append(UI.row(Lang.t("export_backup"), Lang.t("last_backup", [Lang.date_full(last)]) if last != "" else Lang.t("never_backed_up"), null, func(): Platform.export_backup(), true, Icons.make("export", UI.ACCENT, 22)))
 	# When sharing, only the admin may replace everyone's data.
 	if Sync.is_admin():
 		rows.append(UI.row(Lang.t("import_backup"), Lang.t("import_help"), null, func(): Platform.import_backup(), true, Icons.make("import", UI.ACCENT, 22)))
@@ -35,9 +37,12 @@ func build(b: VBoxContainer) -> void:
 				if DB.undo_import():
 					Lang.set_lang(String(DB.data.settings.get("lang", "en")), false)
 					UI.app.toast(Lang.t("import_undone")), true), true, Icons.make("undo", UI.RED, 22)))
-	UI.add_rows(c, rows)
-	b.add_child(UI.margin(c, 16, 0, 16, 0))
-	b.add_child(UI.footnote(Lang.t("backup_help")))
+	if rows.is_empty():
+		backup_title.queue_free()
+	else:
+		UI.add_rows(c, rows)
+		b.add_child(UI.margin(c, 16, 0, 16, 0))
+		b.add_child(UI.footnote(Lang.t("backup_help")))
 	# Records.
 	b.add_child(UI.section_title(Lang.t("records")))
 	var rc := UI.card()

@@ -186,6 +186,7 @@ func _run() -> void:
 	notices.clear()
 	await Sync.sync_now()
 	check(not Sync.enabled() and Sync.status == "removed" and Lang.t("removed_title") in notices, "Bhai's phone stops sharing")
+	check(not DB.has_any_data() and DB.data.payments.is_empty(), "removed phone: all data erased at once")
 
 	# Lost admin phone: recovery code on a new phone.
 	blank_phone()
@@ -193,7 +194,7 @@ func _run() -> void:
 	check(e == "" and Sync.role() == "admin" and DB.data.payments.size() > 0, "recovery makes a new admin phone with all data")
 	use(A)
 	await Sync.sync_now()
-	check(not Sync.enabled(), "old admin phone stops after recovery")
+	check(not Sync.enabled() and not DB.has_any_data(), "old admin phone stops after recovery and is erased")
 	_finish()
 
 
