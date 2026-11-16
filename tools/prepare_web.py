@@ -48,6 +48,7 @@ if not m:
     raise SystemExit("GODOT_CONFIG not found in index.html")
 cfg = json.loads(m.group(1))
 cfg["executable"] = engine            # the engine loads <executable>.wasm and its worklets
+cfg["mainPack"] = "index.pck"         # …and would look for <executable>.pck without this
 sizes = cfg.get("fileSizes", {})
 cfg["fileSizes"] = {renamed.get(k, k): v for k, v in sizes.items()}
 html = html[:m.start(1)] + json.dumps(cfg, separators=(",", ":")) + html[m.end(1):]
