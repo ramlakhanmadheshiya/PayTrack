@@ -34,6 +34,17 @@ static func setup() -> void:
 				document.body.appendChild(a); a.click(); a.remove();
 			}
 		};
+		window.ptDownload = function(b64, name, mime) {
+			try {
+				const bin = atob(b64); const arr = new Uint8Array(bin.length);
+				for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+				const url = URL.createObjectURL(new Blob([arr], {type: mime}));
+				const a = document.createElement('a'); a.href = url; a.download = name;
+				document.body.appendChild(a); a.click(); a.remove();
+				setTimeout(() => URL.revokeObjectURL(url), 10000);
+				return true;
+			} catch (e) { return false; }
+		};
 		// Ask the browser to keep PayTrack's data (not clear it to save space).
 		try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
 		window.ptPick = function(cb) {
@@ -98,16 +109,67 @@ static func share_bytes(bytes: PackedByteArray, file_name: String, mime: String,
 # Backup
 # ---------------------------------------------------------------------------
 
+static func save_to_device(bytes: PackedByteArray, file_name: String, mime: String) -> String:
+	## Keeps a copy of the file on this phone / tablet / computer.
+	## Returns where it went ("" if it could not be saved).
+	if OS.has_feature("web"):
+		var ok = JavaScriptBridge.eval("window.ptDownload('%s', '%s', '%s')" % [Marshalls.raw_to_base64(bytes), file_name.replace("'", ""), mime], true)
+		return Lang.t("saved_where_web") if ok else ""
+	var dir := "user://share"
+	DirAccess.make_dir_recursive_absolute(dir)
+	var path := dir + "/" + file_name
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	if f == null:
+		return ""
+	f.store_buffer(bytes)
+	f.close()
+	var abs_path := ProjectSettings.globalize_path(path)
+	var a := _android()
+	if a:
+		return Lang.t("saved_where_android") if a.saveToDownloads(abs_path, file_name, mime) else ""
+	if OS.get_name() == "Android":
+		return ""
+	if OS.get_name() == "iOS":
+		var docs := OS.get_system_dir(OS.SYSTEM_DIR_DOCUMENTS)
+		if docs != "" and DirAccess.copy_absolute(abs_path, docs.path_join(file_name)) == OK:
+			return Lang.t("saved_to_files")
+		return ""
+	var dl := OS.get_system_dir(OS.SYSTEM_DIR_DOWNLOADS)
+	if dl != "" and DirAccess.copy_absolute(abs_path, dl.path_join(file_name)) == OK:
+		return Lang.t("saved_to_downloads")
+	return ""
+
+
 static func export_backup() -> void:
-	var text := DB.export_text()
-	var ok := share_bytes(text.to_utf8_buffer(), DB.export_file_name(), "application/octet-stream", Lang.t("backup_share_text"))
-	if ok:
+	## Saves a copy on this device first, then asks whether to share it
+	## (WhatsApp, Drive, email…).
+	var bytes := DB.export_text().to_utf8_buffer()
+	var name := DB.export_file_name()
+	var mime := "application/octet-stream"
+	var where := save_to_device(bytes, name, mime)
+	if where != "":
 		DB.mark_exported()
-		if not OS.has_feature("web") and _android() == null and OS.get_name() != "iOS":
-			return
-		UI.app.toast(Lang.t("export_done"))
-	else:
-		UI.app.toast(Lang.t("export_failed"), "error")
+	var s := Sheet.new(Lang.t("export_backup"))
+	UI.app.present(s)
+	var v := UI.vbox(12)
+	var h := UI.hbox(12)
+	h.add_child(Icons.make("check" if where != "" else "warning", UI.GREEN if where != "" else UI.ORANGE, 28))
+	var tv := UI.vbox(2)
+	tv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tv.add_child(UI.wrapped(UI.label(Lang.t("backup_saved") if where != "" else Lang.t("backup_not_saved"), UI.S_HEAD, UI.TEXT, 600)))
+	tv.add_child(UI.wrapped(UI.label(where + "\n" + name if where != "" else Lang.t("backup_share_instead"), UI.S_SUB, UI.TEXT2)))
+	h.add_child(tv)
+	v.add_child(h)
+	v.add_child(UI.spacer(4))
+	v.add_child(UI.wrapped(UI.label(Lang.t("share_backup_q"), UI.S_BODY, UI.TEXT, 500)))
+	v.add_child(UI.button(Lang.t("share_backup"), "primary", func():
+		if share_bytes(bytes, name, mime, Lang.t("backup_share_text")):
+			DB.mark_exported()
+		else:
+			UI.app.toast(Lang.t("export_failed"), "error"), "share"))
+	v.add_child(UI.wrapped(UI.label(Lang.t("share_backup_help"), UI.S_CAP, UI.TEXT2)))
+	v.add_child(UI.button(Lang.t("no_thanks"), "secondary", func(): s.close()))
+	s.body.add_child(v)
 
 
 static func import_backup() -> void:

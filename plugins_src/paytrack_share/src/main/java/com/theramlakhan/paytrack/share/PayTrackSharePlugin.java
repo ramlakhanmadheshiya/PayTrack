@@ -2,6 +2,12 @@ package com.theramlakhan.paytrack.share;
 
 import android.app.Activity;
 import android.content.Intent;
+import java.io.FileInputStream;
+import android.provider.MediaStore;
+import android.os.Environment;
+import android.os.Build;
+import android.content.ContentValues;
+import android.content.ContentResolver;
 import android.database.Cursor;
 import android.net.Uri;
 import android.provider.OpenableColumns;
@@ -78,6 +84,47 @@ public class PayTrackSharePlugin extends GodotPlugin {
 			return true;
 		} catch (Exception e) {
 			error = "share: " + e;
+			return false;
+		}
+	}
+
+	/** Keeps a copy of a file in Downloads/PayTrack (Android 10+: MediaStore, no permission needed). */
+	@UsedByGodot
+	public boolean saveToDownloads(String path, String name, String mime) {
+		final Activity activity = getActivity();
+		if (activity == null) {
+			error = "no activity";
+			return false;
+		}
+		try {
+			OutputStream os;
+			if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+				ContentResolver cr = activity.getContentResolver();
+				ContentValues v = new ContentValues();
+				v.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
+				v.put(MediaStore.MediaColumns.MIME_TYPE, mime);
+				v.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/PayTrack");
+				Uri uri = cr.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
+				if (uri == null) {
+					error = "save: no uri";
+					return false;
+				}
+				os = cr.openOutputStream(uri);
+			} else {
+				File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "PayTrack");
+				dir.mkdirs();
+				os = new FileOutputStream(new File(dir, name));
+			}
+			try (InputStream in = new FileInputStream(path); OutputStream out = os) {
+				byte[] buf = new byte[64 * 1024];
+				int n;
+				while ((n = in.read(buf)) > 0) {
+					out.write(buf, 0, n);
+				}
+			}
+			return true;
+		} catch (Exception e) {
+			error = "save: " + e;
 			return false;
 		}
 	}
