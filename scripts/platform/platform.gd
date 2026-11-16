@@ -217,20 +217,48 @@ static func import_backup() -> void:
 
 
 static func _wait_for_pick(a: Object) -> void:
-	## Asks the picker every 0.4 s until the user has chosen a file (or not).
+	## Asks the picker every 0.4 s until a file was chosen (or not), and shows
+	## each step in a small window, so a problem can be seen and reported.
+	var sh := Sheet.new(Lang.t("import_backup"))
+	UI.app.present(sh)
+	var msg := UI.wrapped(UI.label(Lang.t("import_opening"), UI.S_SUB, UI.TEXT, 500))
+	sh.body.add_child(msg)
+	var detail := UI.wrapped(UI.label("", UI.S_CAP, UI.TEXT3))
+	detail.set_meta("raw", true)
+	sh.body.add_child(detail)
 	var tree := UI.app.get_tree()
 	var waited := 0.0
+	var opened := false
+	var last := Time.get_ticks_msec()
 	while waited < 1800.0:
 		await tree.create_timer(0.4, true).timeout
+		if not is_instance_valid(sh) or sh._closing:
+			return   # closed by the user
+		var now := Time.get_ticks_msec()
+		if now - last > 1500:
+			opened = true   # the app was in the background: the picker was shown
+			msg.text = Lang.t("import_reading")
+		last = now
 		waited += 0.4
 		var st := String(a.pickStatus())
+		detail.text = st.substr(0, 160)
 		if st == "waiting":
+			if not opened and waited > 6.0:
+				msg.text = Lang.t("import_no_picker")
+				msg.add_theme_color_override("font_color", UI.RED)
 			continue
 		if st.begins_with("done:"):
+			sh.close()
 			_got_file(st.substr(5))
 		elif st.begins_with("error:"):
-			_fail(st.substr(6))
-		return   # "cancelled" or "idle": nothing to do
+			msg.text = Lang.t("import_failed") + ": " + st.substr(6)
+			msg.add_theme_color_override("font_color", UI.RED)
+		elif st == "cancelled":
+			sh.close()
+		else:
+			msg.text = Lang.t("import_no_result")
+			msg.add_theme_color_override("font_color", UI.RED)
+		return
 
 
 static func _fail(reason: String) -> void:
